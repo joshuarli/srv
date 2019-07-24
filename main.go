@@ -18,8 +18,14 @@ func renderListing(w http.ResponseWriter, f *os.File) error {
 	if err != nil {
 		return err
 	}
-	for _, file := range files {
-		fmt.Fprintf(w, "%s\n", file.Name())  // TODO: IsDir() href else Size()
+	for _, fi := range files {
+		name, size := fi.Name(), fi.Size()
+		switch {
+		case fi.IsDir():
+			fmt.Fprintf(w, "<a href=\"%s/\">%s/</a>\n", name, name)
+		default:
+			fmt.Fprintf(w, "<p><a href=\"%s\">%s</a> %d</p>\n", name, name, size)  // TODO: move size to separate column and also ellipsis after certain length
+		}
 	}
 	return nil
 }
