@@ -2,24 +2,55 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"path"
 )
 
 type context struct {
 	srvDir string
 }
 
+func renderListing(w http.ResponseWriter, f *os.File) error {
+	files, err := f.Readdir(-1)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		fmt.Fprintf(w, "%s\n", file.Name())  // TODO: IsDir() href else Size()
+	}
+	return nil
+}
+
 func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		// https://golang.org/src/net/http/fs.go?s=19279:19336#L660
-		// ServeFile does a lot of what we want, i'm basically just going to reskin dirList
-		// don't forget to vendor the security stuff like containsDotDot
-		// can simplify serveContent a lot as well, in particular only take the mime type code
-		// to write the header and then just io.Copy the file body
-		http.ServeFile(w, r, c.srvDir + r.URL.Path)
+		// path.Join is Cleaned, but docstring for http.ServeFile says joining r.URL.Path isn't safe
+		// however this seems fine? might want to add a small test suite with some dir traversal attacks
+		fp := path.Join(c.srvDir, r.URL.Path)
+		f, err := os.OpenFile(fp, os.O_RDONLY, 0444)  // TODO: this doesn't follow symlink? should probably just Stat first before opening.
+		defer f.Close()
+		if err != nil {
+			http.Error(w, "file not found or failed to open", http.StatusNotFound)
+		}
+		fi, err := f.Stat()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		// TODO: when creating index.html, make symlinks unclickable (what does python server do for symlinks?) - detect via Lstat then FileMode IsSymlink (write my own based on https://golang.org/src/os/types.go?s=3303:3333#L83)
+		switch {
+		case fi.IsDir():
+			err := renderListing(w, f)
+			if err != nil {
+				http.Error(w, "failed to render directory listing: "+err.Error(), http.StatusInternalServerError)
+			}
+		case fi.Mode().IsRegular():
+			io.Copy(w, f)
+		default:
+			http.Error(w, "file isn't a regular file or directory", http.StatusBadRequest)
+		}
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
