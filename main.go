@@ -30,18 +30,22 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		// path.Join is Cleaned, but docstring for http.ServeFile says joining r.URL.Path isn't safe
 		// however this seems fine? might want to add a small test suite with some dir traversal attacks
 		fp := path.Join(c.srvDir, r.URL.Path)
-		f, err := os.OpenFile(fp, os.O_RDONLY, 0444)  // TODO: this doesn't follow symlink? should probably just Stat first before opening.
+
+		fi, err := os.Lstat(fp)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		f, err := os.OpenFile(fp, os.O_RDONLY, 0444)
 		defer f.Close()
 		if err != nil {
 			http.Error(w, "file not found or failed to open", http.StatusNotFound)
 		}
-		fi, err := f.Stat()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		// TODO: when creating index.html, make symlinks unclickable (what does python server do for symlinks?) - detect via Lstat then FileMode IsSymlink (write my own based on https://golang.org/src/os/types.go?s=3303:3333#L83)
+
+		// TODO: preferably StatusBadRequest before opening, but need to do this without redundant logic
 		switch {
 		case fi.IsDir():
+			// TODO: when creating index.html, make symlinks unclickable (what does python server do for symlinks?) - detect via Lstat then FileMode IsSymlink (write my own based on https://golang.org/src/os/types.go?s=3303:3333#L83)
 			err := renderListing(w, f)
 			if err != nil {
 				http.Error(w, "failed to render directory listing: "+err.Error(), http.StatusInternalServerError)
@@ -51,6 +55,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		default:
 			http.Error(w, "file isn't a regular file or directory", http.StatusBadRequest)
 		}
+
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
