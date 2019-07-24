@@ -33,13 +33,15 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 
 		fi, err := os.Lstat(fp)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
 		}
 
 		f, err := os.OpenFile(fp, os.O_RDONLY, 0444)
 		defer f.Close()
 		if err != nil {
-			http.Error(w, "file not found or failed to open", http.StatusNotFound)
+			http.Error(w, "failed to open file", http.StatusNotFound)
+			return
 		}
 
 		// TODO: preferably StatusBadRequest before opening, but need to do this without redundant logic
@@ -55,7 +57,6 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		default:
 			http.Error(w, "file isn't a regular file or directory", http.StatusBadRequest)
 		}
-
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
