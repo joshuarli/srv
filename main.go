@@ -18,15 +18,21 @@ func renderListing(w http.ResponseWriter, f *os.File) error {
 	if err != nil {
 		return err
 	}
+    fmt.Fprintf(w, "<style>html { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style>\n")
+    fmt.Fprintf(w, "<table>")
 	for _, fi := range files {
+        fmt.Fprintf(w, "<tr>")
 		name, size := fi.Name(), fi.Size()
 		switch {
+        // TODO: css ellipsis e.g. text-overflow: ellipsis;
 		case fi.IsDir():
-			fmt.Fprintf(w, "<a href=\"%s/\">%s/</a>\n", name, name)
+			fmt.Fprintf(w, "<td><a href=\"%s/\">%s/</a></td>\n", name, name)
 		default:
-			fmt.Fprintf(w, "<p><a href=\"%s\">%s</a> %d</p>\n", name, name, size)  // TODO: move size to separate column and also ellipsis after certain length
+			fmt.Fprintf(w, "<td><a href=\"%s\">%s</a></td><td>%d</td>\n", name, name, size)
 		}
+        fmt.Fprintf(w, "</tr>")
 	}
+    fmt.Fprintf(w, "</table>")
 	return nil
 }
 
