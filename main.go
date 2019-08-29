@@ -22,6 +22,7 @@ func renderListing(w http.ResponseWriter, f *os.File) error {
     fmt.Fprintf(w, "<table>")
 	for _, fi := range files {
         fmt.Fprintf(w, "<tr>")
+        // TODO: separately sort hidden files? probably an optional feature, would make code more complicated
 		name, size := fi.Name(), fi.Size()
 		switch {
         // TODO: css ellipsis e.g. text-overflow: ellipsis;
@@ -43,7 +44,9 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		// however this seems fine? might want to add a small test suite with some dir traversal attacks
 		fp := path.Join(c.srvDir, r.URL.Path)
 
-		fi, err := os.Lstat(fp)
+        // TODO: what if a trailing slash is requested? does the above remove that, or if not and if it errors, then strip it (could be more than one////)
+		// can this be removed? i think i was using this to stop symlinks, still need to test
+        fi, err := os.Lstat(fp)
 		if err != nil {
 			http.Error(w, "file not found", http.StatusNotFound)
 			return
@@ -56,18 +59,23 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// TODO: preferably StatusBadRequest before opening, but need to do this without redundant logic
 		switch {
 		case fi.IsDir():
+            html, err := os.OpenFile(path.Join(fp, "index.html"), os.O_RDONLY, 0444)
+            defer html.Close()
+            if err == nil {
+                io.Copy(w, html)
+                return
+            }
 			// TODO: when creating index.html, make symlinks unclickable (what does python server do for symlinks?) - detect via Lstat then FileMode IsSymlink (write my own based on https://golang.org/src/os/types.go?s=3303:3333#L83)
-			err := renderListing(w, f)
+			err = renderListing(w, f)
 			if err != nil {
 				http.Error(w, "failed to render directory listing: "+err.Error(), http.StatusInternalServerError)
 			}
 		case fi.Mode().IsRegular():
 			io.Copy(w, f)
 		default:
-			http.Error(w, "file isn't a regular file or directory", http.StatusBadRequest)
+			http.Error(w, "file isn't a regular file or directory", http.StatusBadRequest)  // statusbadrequest isn't semantically correct here i dont think
 		}
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
