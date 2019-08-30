@@ -13,7 +13,7 @@ type context struct {
 	srvDir string
 }
 
-func renderListing(w http.ResponseWriter, f *os.File) error {
+func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	files, err := f.Readdir(-1)
 	if err != nil {
 		return err
@@ -24,12 +24,13 @@ func renderListing(w http.ResponseWriter, f *os.File) error {
         fmt.Fprintf(w, "<tr>")
         // TODO: separately sort hidden files? probably an optional feature, would make code more complicated
 		name, size := fi.Name(), fi.Size()
+        path := path.Join(r.URL.Path, name)
 		switch {
         // TODO: css ellipsis e.g. text-overflow: ellipsis;
 		case fi.IsDir():
-			fmt.Fprintf(w, "<td><a href=\"%s/\">%s/</a></td>\n", name, name)
+			fmt.Fprintf(w, "<td><a href=\"%s/\">%s/</a></td>\n", path, name)
 		default:
-			fmt.Fprintf(w, "<td><a href=\"%s\">%s</a></td><td>%d</td>\n", name, name, size)
+			fmt.Fprintf(w, "<td><a href=\"%s\">%s</a></td><td>%d</td>\n", path, name, size)
 		}
         fmt.Fprintf(w, "</tr>")
 	}
@@ -48,7 +49,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		// can this be removed? i think i was using this to stop symlinks, still need to test
         fi, err := os.Lstat(fp)
 		if err != nil {
-			http.Error(w, "file not found", http.StatusNotFound)
+			http.Error(w, "file not found" + err.Error(), http.StatusNotFound)
 			return
 		}
 
@@ -68,7 +69,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
                 return
             }
 			// TODO: when creating index.html, make symlinks unclickable (what does python server do for symlinks?) - detect via Lstat then FileMode IsSymlink (write my own based on https://golang.org/src/os/types.go?s=3303:3333#L83)
-			err = renderListing(w, f)
+			err = renderListing(w, r, f)
 			if err != nil {
 				http.Error(w, "failed to render directory listing: "+err.Error(), http.StatusInternalServerError)
 			}
