@@ -28,6 +28,7 @@ sed 's/MAKE_VERSION/$(VERSION)/' .version > $(TMP_VERSION_FILE);
 GOOS=$(1) GOARCH=$(2) go build -a \
 	 -o release/$(NAME)-$(1)-$(2) \
 	 $(GO_LDFLAGS_STATIC) . ;
+upx -9 release/$(NAME)-$(1)-$(2);
 sha512sum release/$(NAME)-$(1)-$(2) > release/$(NAME)-$(1)-$(2).sha512sum;
 rm $(TMP_VERSION_FILE);
 endef
