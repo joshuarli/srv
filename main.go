@@ -134,7 +134,7 @@ func main() {
 usage: %s port [directory]
 
 directory	path to directory to serve (default: PWD)
-`, "0.0", os.Args[0])
+`, VERSION, os.Args[0])
 	}
 	port := os.Args[1]
 
