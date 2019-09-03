@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sort"
 )
 
 type context struct {
@@ -18,11 +19,13 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	if err != nil {
 		return err
 	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
+
     fmt.Fprintf(w, "<style>html { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style>\n")
     fmt.Fprintf(w, "<table>")
+
 	for _, fi := range files {
         fmt.Fprintf(w, "<tr>")
-        // TODO: separately sort hidden files? probably an optional feature, would make code more complicated
 		name, size := fi.Name(), fi.Size()
         path := path.Join(r.URL.Path, name)
 		switch {
@@ -36,6 +39,7 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 		}
         fmt.Fprintf(w, "</tr>")
 	}
+
     fmt.Fprintf(w, "</table>")
 	return nil
 }
