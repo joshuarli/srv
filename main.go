@@ -29,6 +29,8 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
         // TODO: css ellipsis e.g. text-overflow: ellipsis;
 		case fi.IsDir():
 			fmt.Fprintf(w, "<td><a href=\"%s/\">%s/</a></td>\n", path, name)
+		case ! fi.Mode().IsRegular():
+			fmt.Fprintf(w, "<td><p style=\"color: #777\">%s</p></td>\n", name)
 		default:
 			fmt.Fprintf(w, "<td><a href=\"%s\">%s</a></td><td>%d</td>\n", path, name, size)
 		}
@@ -45,18 +47,16 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		// however this seems fine? might want to add a small test suite with some dir traversal attacks
 		fp := path.Join(c.srvDir, r.URL.Path)
 
-        // TODO: what if a trailing slash is requested? does the above remove that, or if not and if it errors, then strip it (could be more than one////)
-		// can this be removed? i think i was using this to stop symlinks, still need to test
         fi, err := os.Lstat(fp)
 		if err != nil {
-			http.Error(w, "file not found" + err.Error(), http.StatusNotFound)
+			http.Error(w, "file not found", http.StatusNotFound)
 			return
 		}
 
 		f, err := os.OpenFile(fp, os.O_RDONLY, 0444)
 		defer f.Close()
 		if err != nil {
-			http.Error(w, "failed to open file", http.StatusNotFound)
+			http.Error(w, "failed to open file", http.StatusInternalServerError)
 			return
 		}
 
@@ -68,7 +68,6 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
                 io.Copy(w, html)
                 return
             }
-			// TODO: when creating index.html, make symlinks unclickable (what does python server do for symlinks?) - detect via Lstat then FileMode IsSymlink (write my own based on https://golang.org/src/os/types.go?s=3303:3333#L83)
 			err = renderListing(w, r, f)
 			if err != nil {
 				http.Error(w, "failed to render directory listing: "+err.Error(), http.StatusInternalServerError)
