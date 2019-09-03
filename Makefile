@@ -21,7 +21,7 @@ clean:
 
 # release static crossbuilds
 
-GO_LDFLAGS_STATIC=-ldflags "-s -w -extldflags -static"
+GO_LDFLAGS_STATIC=-tags netgo -ldflags "-s -w -extldflags -static"
 
 define buildrelease
 sed 's/MAKE_VERSION/$(VERSION)/' .version > $(TMP_VERSION_FILE);
