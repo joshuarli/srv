@@ -14,6 +14,21 @@ type context struct {
 	srvDir string
 }
 
+func humanFileSize(nbytes int64) string {
+	if nbytes < 1024 {
+		return fmt.Sprintf("%d", nbytes)
+	}
+	var exp int
+	n := float64(nbytes)
+	for exp = 0; exp < 4; exp++ {
+		n /= 1024
+		if n < 1024 {
+			break
+		}
+    }
+	return fmt.Sprintf("%.1f%c", float64(n), "KMGT"[exp])
+}
+
 func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	files, err := f.Readdir(-1)
 	if err != nil {
@@ -35,7 +50,7 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 		case ! fi.Mode().IsRegular():
 			fmt.Fprintf(w, "<td><p style=\"color: #777\">%s</p></td>\n", name)
 		default:
-			fmt.Fprintf(w, "<td><a href=\"%s\">%s</a></td><td>%d</td>\n", path, name, size)
+			fmt.Fprintf(w, "<td><a href=\"%s\">%s</a></td><td>%s</td>\n", path, name, humanFileSize(size))
 		}
         fmt.Fprintf(w, "</tr>")
 	}
