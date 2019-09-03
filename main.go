@@ -25,7 +25,7 @@ func humanFileSize(nbytes int64) string {
 		if n < 1024 {
 			break
 		}
-    }
+	}
 	return fmt.Sprintf("%.1f%c", float64(n), "KMGT"[exp])
 }
 
@@ -36,26 +36,25 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
 
-    fmt.Fprintf(w, "<style>html { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style>\n")
-    fmt.Fprintf(w, "<table>")
+	fmt.Fprintf(w, "<style>html { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style>\n")
+	fmt.Fprintf(w, "<table>")
 
 	for _, fi := range files {
-        fmt.Fprintf(w, "<tr>")
+		fmt.Fprintf(w, "<tr>")
 		name, size := fi.Name(), fi.Size()
-        path := path.Join(r.URL.Path, name)
+		path := path.Join(r.URL.Path, name)
 		switch {
-        // TODO: css ellipsis e.g. text-overflow: ellipsis;
 		case fi.IsDir():
 			fmt.Fprintf(w, "<td><a href=\"%s/\">%s/</a></td>\n", path, name)
-		case ! fi.Mode().IsRegular():
+		case !fi.Mode().IsRegular():
 			fmt.Fprintf(w, "<td><p style=\"color: #777\">%s</p></td>\n", name)
 		default:
 			fmt.Fprintf(w, "<td><a href=\"%s\">%s</a></td><td>%s</td>\n", path, name, humanFileSize(size))
 		}
-        fmt.Fprintf(w, "</tr>")
+		fmt.Fprintf(w, "</tr>")
 	}
 
-    fmt.Fprintf(w, "</table>")
+	fmt.Fprintf(w, "</table>")
 	return nil
 }
 
@@ -66,7 +65,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		// however this seems fine? might want to add a small test suite with some dir traversal attacks
 		fp := path.Join(c.srvDir, r.URL.Path)
 
-        fi, err := os.Lstat(fp)
+		fi, err := os.Lstat(fp)
 		if err != nil {
 			http.Error(w, "file not found", http.StatusNotFound)
 			return
@@ -83,12 +82,12 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		case fi.IsDir():
 			// XXX: if a symlink has name "index.html", it will be served here.
 			// i could add an extra lstat here, but the scenario is just too rare to justify the additional file operation.
-            html, err := os.OpenFile(path.Join(fp, "index.html"), os.O_RDONLY, 0444)
-            defer html.Close()
-            if err == nil {
-                io.Copy(w, html)
-                return
-            }
+			html, err := os.OpenFile(path.Join(fp, "index.html"), os.O_RDONLY, 0444)
+			defer html.Close()
+			if err == nil {
+				io.Copy(w, html)
+				return
+			}
 			err = renderListing(w, r, f)
 			if err != nil {
 				http.Error(w, "failed to render directory listing: "+err.Error(), http.StatusInternalServerError)
@@ -142,6 +141,6 @@ directory	path to directory to serve (default: PWD)
 	c := &context{
 		srvDir: srvDir,
 	}
-    http.HandleFunc("/", c.handler)
+	http.HandleFunc("/", c.handler)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
