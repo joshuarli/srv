@@ -62,6 +62,8 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 
 		switch {
 		case fi.IsDir():
+			// XXX: if a symlink has name "index.html", it will be served here.
+			// i could add an extra lstat here, but the scenario is just too rare to justify the additional file operation.
             html, err := os.OpenFile(path.Join(fp, "index.html"), os.O_RDONLY, 0444)
             defer html.Close()
             if err == nil {
@@ -75,7 +77,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		case fi.Mode().IsRegular():
 			io.Copy(w, f)
 		default:
-			http.Error(w, "file isn't a regular file or directory", http.StatusBadRequest)  // statusbadrequest isn't semantically correct here i dont think
+			http.Error(w, "file isn't a regular file or directory", http.StatusForbidden)
 		}
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
