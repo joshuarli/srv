@@ -36,7 +36,7 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
 
-	fmt.Fprintf(w, "<style>html { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style>\n")
+	fmt.Fprintf(w, "<style>* { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style>\n")
 	fmt.Fprintf(w, "<table>")
 
 	for _, fi := range files {
