@@ -40,9 +40,9 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	fmt.Fprintf(w, "<table>")
 
 	for _, fi := range files {
-		fmt.Fprintf(w, "<tr>")
 		name, size := fi.Name(), fi.Size()
 		path := path.Join(r.URL.Path, name)
+		fmt.Fprintf(w, "<tr>")
 		switch {
 		case fi.IsDir():
 			fmt.Fprintf(w, "<td><a href=\"%s/\">%s/</a></td>\n", path, name)
