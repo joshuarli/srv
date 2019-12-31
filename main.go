@@ -46,16 +46,14 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	for _, fi := range files {
 		name, size := fi.Name(), fi.Size()
 		path := path.Join(r.URL.Path, name)
-		fmt.Fprintf(w, "<tr>")
 		switch {
 		case fi.IsDir():
-			fmt.Fprintf(w, "<td><a href=\"%s/\">%s/</a></td>\n", path, name)
+			fmt.Fprintf(w, "<tr><td><a href=\"%s/\">%s/</a></td></tr>", path, name)
 		case !fi.Mode().IsRegular():
-			fmt.Fprintf(w, "<td><p style=\"color: #777\">%s</p></td>\n", name)
+			fmt.Fprintf(w, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", name)
 		default:
-			fmt.Fprintf(w, "<td><a href=\"%s\">%s</a></td><td>%s</td>\n", path, name, humanFileSize(size))
+			fmt.Fprintf(w, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", path, name, humanFileSize(size))
 		}
-		fmt.Fprintf(w, "</tr>")
 	}
 
 	fmt.Fprintf(w, "</table>")
