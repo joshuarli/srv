@@ -80,8 +80,9 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		switch {
-		case fi.IsDir():
+		switch m := fi.Mode(); true {
+		// is a directory
+		case m & os.ModeDir != 0:
 			// XXX: if a symlink has name "index.html", it will be served here.
 			// i could add an extra lstat here, but the scenario is just too rare to justify the additional file operation.
 			html, err := os.Open(path.Join(fp, "index.html"))
@@ -94,8 +95,12 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				http.Error(w, "failed to render directory listing: "+err.Error(), http.StatusInternalServerError)
 			}
-		case fi.Mode().IsRegular():
+		// is a regular file
+		case m & os.ModeType == 0:
 			io.Copy(w, f)
+		// is a symlink
+		case m & os.ModeSymlink != 0:
+			http.Error(w, "file is a symlink", http.StatusForbidden)
 		default:
 			http.Error(w, "file isn't a regular file or directory", http.StatusForbidden)
 		}
