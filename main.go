@@ -73,7 +73,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		f, err := os.OpenFile(fp, os.O_RDONLY, 0444)
+		f, err := os.Open(fp)
 		defer f.Close()
 		if err != nil {
 			http.Error(w, "failed to open file", http.StatusInternalServerError)
@@ -84,7 +84,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		case fi.IsDir():
 			// XXX: if a symlink has name "index.html", it will be served here.
 			// i could add an extra lstat here, but the scenario is just too rare to justify the additional file operation.
-			html, err := os.OpenFile(path.Join(fp, "index.html"), os.O_RDONLY, 0444)
+			html, err := os.Open(path.Join(fp, "index.html"))
 			defer html.Close()
 			if err == nil {
 				io.Copy(w, html)
