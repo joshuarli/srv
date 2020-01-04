@@ -40,8 +40,9 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 		return strings.ToLower(files[i].Name()) < strings.ToLower(files[j].Name())
 	})
 
-	fmt.Fprintf(w, "<style>* { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style>\n")
-	fmt.Fprintf(w, "<table>")
+	var buf strings.Builder
+	buf.WriteString("<style>* { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style>\n")
+	buf.WriteString("<table>")
 
 	for _, fi := range files {
 		name, size := fi.Name(), fi.Size()
@@ -49,16 +50,18 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 		switch m := fi.Mode(); {
 		// is a directory - render a link
 		case m & os.ModeDir != 0:
-			fmt.Fprintf(w, "<tr><td><a href=\"%s/\">%s/</a></td></tr>", path, name)
+			fmt.Fprintf(&buf, "<tr><td><a href=\"%s/\">%s/</a></td></tr>", path, name)
 		// is not a regular file - don't render a clickable link
 		case m & os.ModeType != 0:
-			fmt.Fprintf(w, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", name)
+			fmt.Fprintf(&buf, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", name)
 		default:
-			fmt.Fprintf(w, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", path, name, humanFileSize(size))
+			fmt.Fprintf(&buf, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", path, name, humanFileSize(size))
 		}
 	}
 
-	fmt.Fprintf(w, "</table>")
+	buf.WriteString("</table>")
+
+	fmt.Fprintf(w, buf.String())
 	return nil
 }
 
