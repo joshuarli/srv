@@ -46,10 +46,12 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	for _, fi := range files {
 		name, size := fi.Name(), fi.Size()
 		path := path.Join(r.URL.Path, name)
-		switch {
-		case fi.IsDir():
+		switch m := fi.Mode(); {
+		// is a directory - render a link
+		case m & os.ModeDir != 0:
 			fmt.Fprintf(w, "<tr><td><a href=\"%s/\">%s/</a></td></tr>", path, name)
-		case !fi.Mode().IsRegular():
+		// is not a regular file - don't render a clickable link
+		case m & os.ModeType != 0:
 			fmt.Fprintf(w, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", name)
 		default:
 			fmt.Fprintf(w, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", path, name, humanFileSize(size))
@@ -86,8 +88,8 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		switch m := fi.Mode(); true {
-		// is a directory
+		switch m := fi.Mode(); {
+		// is a directory - serve an index.html if it exists, otherwise generate and serve a directory listing
 		case m & os.ModeDir != 0:
 			// XXX: if a symlink has name "index.html", it will be served here.
 			// i could add an extra lstat here, but the scenario is just too rare to justify the additional file operation.
@@ -101,10 +103,10 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				http.Error(w, "failed to render directory listing: "+err.Error(), http.StatusInternalServerError)
 			}
-		// is a regular file
+		// is a regular file - serve its contents
 		case m & os.ModeType == 0:
 			io.Copy(w, f)
-		// is a symlink
+		// is a symlink - refuse to serve
 		case m & os.ModeSymlink != 0:
 			http.Error(w, "file is a symlink", http.StatusForbidden)
 		default:
