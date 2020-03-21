@@ -2,6 +2,8 @@ NAME := srv
 VERSION := $(shell git describe --tags --exact-match 2>/dev/null || \
 			 printf %s\\n "git-$$(git describe --always --dirty)")
 
+GO_LDFLAGS=-ldflags "-s -w"
+
 .PHONY: build
 build: clean $(NAME)
 
@@ -10,7 +12,7 @@ build: clean $(NAME)
 TMP_VERSION_FILE := $(shell tr -dc 'a-f0-9' < /dev/urandom | dd bs=1 count=8 2>/dev/null).go
 $(NAME): main.go
 	sed 's/MAKE_VERSION/$(VERSION)/' .version > $(TMP_VERSION_FILE)
-	go build -o build/$(NAME) .; rm $(TMP_VERSION_FILE)
+	go build -o build/$(NAME) $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
 
 .PHONY: clean
 clean:
