@@ -12,12 +12,12 @@ build: clean $(NAME)
 TMP_VERSION_FILE := $(shell tr -dc 'a-f0-9' < /dev/urandom | dd bs=1 count=8 2>/dev/null).go
 $(NAME): main.go
 	sed 's/MAKE_VERSION/$(VERSION)/' .version > $(TMP_VERSION_FILE)
-	go build -o build/$(NAME) $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
+	go build -o $(NAME) $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
 
 .PHONY: clean
 clean:
 	rm -f $(NAME)
-	rm -rf build release
+	rm -rf release
 
 
 # release static crossbuilds
