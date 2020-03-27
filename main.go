@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -127,11 +128,16 @@ func die(format string, v ...interface{}) {
 }
 
 func main() {
-	argv := len(os.Args)
-	var srvDir string
-	switch {
-	case argv == 3:
-		srvDir = os.Args[2]
+	// maybe should add a -bind domain (localhost, 0.0.0.0, etc.)
+	var port, srvDir string
+	flag.StringVar(&port, "p", "8000", "port to listen on")
+	flag.StringVar(&srvDir, "d", "", "path to directory to serve (default: PWD)")
+	flag.Parse()
+
+	// TODO srv.crt srv.key paths to an X509 keypair if you'd like to serve with TLS
+	// -c -k must be together, i need custom logic for this too
+
+	if srvDir != "" {
 		f, err := os.Open(srvDir)
 		defer f.Close()
 		if err != nil {
@@ -140,25 +146,31 @@ func main() {
 		if fi, err := f.Stat(); err != nil || !fi.IsDir() {
 			die("%s isn't a directory", srvDir)
 		}
-	case argv == 2:
+	} else {
 		var exists bool
 		srvDir, exists = os.LookupEnv("PWD")
 		if !exists {
 			die("PWD is not set, cannot infer directory.")
 		}
-	default:
+	}
+	/*
 		die(`srv ver. %s
 
-usage: %s port [directory]
+usage: %s port [directory] [srv.crt] [srv.key]
 
-directory	path to directory to serve (default: PWD)
+directory			path to directory to serve (default: PWD)
+srv.crt srv.key		paths to an X509 keypair if you'd like to serve with TLS
 `, VERSION, os.Args[0])
 	}
-	port := os.Args[1]
+	*/
 
 	c := &context{
 		srvDir: srvDir,
 	}
 	http.HandleFunc("/", c.handler)
+
+	// go can also pretty easily stamp out self-signed certs, but we'll delegate
+	// that to external tools for now.
+
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
