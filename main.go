@@ -130,29 +130,22 @@ func die(format string, v ...interface{}) {
 func main() {
 	// maybe should add a -bind domain (localhost, 0.0.0.0, etc.)
 	var port, srvDir string
-	flag.StringVar(&port, "p", "8000", "port to listen on")
-	flag.StringVar(&srvDir, "d", "", "path to directory to serve (default: PWD)")
+	flag.StringVar(&port, "p", "8000", "port to listen on (default: 8000)")
+	flag.StringVar(&srvDir, "d", ".", "path to directory to serve (default: .)")
 	flag.Parse()
 
 	// TODO srv.crt srv.key paths to an X509 keypair if you'd like to serve with TLS
 	// -c -k must be together, i need custom logic for this too
 
-	if srvDir != "" {
-		f, err := os.Open(srvDir)
-		defer f.Close()
-		if err != nil {
-			die(err.Error())
-		}
-		if fi, err := f.Stat(); err != nil || !fi.IsDir() {
-			die("%s isn't a directory", srvDir)
-		}
-	} else {
-		var exists bool
-		srvDir, exists = os.LookupEnv("PWD")
-		if !exists {
-			die("PWD is not set, cannot infer directory.")
-		}
+	f, err := os.Open(srvDir)
+	defer f.Close()
+	if err != nil {
+		die(err.Error())
 	}
+	if fi, err := f.Stat(); err != nil || !fi.IsDir() {
+		die("%s isn't a directory", srvDir)
+	}
+
 	/*
 		die(`srv ver. %s
 
