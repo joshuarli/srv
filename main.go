@@ -129,9 +129,20 @@ func die(format string, v ...interface{}) {
 
 func main() {
 	// maybe should add a -bind domain (localhost, 0.0.0.0, etc.)
+	flag.Usage = func() {
+	    die(`srv ver. %s
+
+usage: %s [-p port] [-d directory]
+
+port				port to listen on (default: 8000)
+directory			path to directory to serve (default: .)
+`, VERSION, os.Args[0])
+// srv.crt srv.key		paths to an X509 keypair if you'd like to serve with TLS
+	}
+
 	var port, srvDir string
-	flag.StringVar(&port, "p", "8000", "port to listen on (default: 8000)")
-	flag.StringVar(&srvDir, "d", ".", "path to directory to serve (default: .)")
+	flag.StringVar(&port, "p", "8000", "")
+	flag.StringVar(&srvDir, "d", ".", "")
 	flag.Parse()
 
 	// TODO srv.crt srv.key paths to an X509 keypair if you'd like to serve with TLS
@@ -145,17 +156,6 @@ func main() {
 	if fi, err := f.Stat(); err != nil || !fi.IsDir() {
 		die("%s isn't a directory", srvDir)
 	}
-
-	/*
-		die(`srv ver. %s
-
-usage: %s port [directory] [srv.crt] [srv.key]
-
-directory			path to directory to serve (default: PWD)
-srv.crt srv.key		paths to an X509 keypair if you'd like to serve with TLS
-`, VERSION, os.Args[0])
-	}
-	*/
 
 	c := &context{
 		srvDir: srvDir,
