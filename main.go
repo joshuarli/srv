@@ -12,13 +12,10 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/joshuarli/srv/internal/humanize"
 )
-
-type context struct {
-	srvDir string
-}
 
 func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	files, err := f.Readdir(-1)
@@ -63,7 +60,12 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 	//   - would need to print on same line / formatted group, otherwise logging would be clobbered/OOO
 	//     - deferring the entire log line until a response finishes is not good UX
 	//     - would likely need a TUI if i were to go this far
-	log.Printf("%s says %s %s %s", r.RemoteAddr, r.Method, r.Proto, r.Host+r.RequestURI)
+	countRepr := ""
+	if c.enumerate {
+		atomic.AddUint64(&c.count, 1)
+		countRepr = fmt.Sprintf("[%d] ", atomic.LoadUint64(&c.count))
+	}
+	log.Printf("%s%s says %s %s %s", countRepr, r.RemoteAddr, r.Method, r.Proto, r.Host+r.RequestURI)
 
 	switch r.Method {
 	case http.MethodGet:
@@ -125,23 +127,34 @@ func die(format string, v ...interface{}) {
 	os.Exit(1)
 }
 
+type context struct {
+	srvDir    string
+	enumerate bool
+	count     uint64
+}
+
 func main() {
 	flag.Usage = func() {
 		die(`srv ver. %s
 
-usage: %s [-q] [-p port] [-d directory] [-c certfile -k keyfile]
+usage: %s [-p port] [-d directory] [-c certfile -k keyfile] [-q] [-e]
 
--q				quiet; disable all logging
 -p port			port to listen on (default: 8000)
 -b address		listener socket's bind address (default: 127.0.0.1)
 -d directory	path to directory to serve (default: .)
 -c certfile		optional path to a PEM-format X.509 certificate
 -k keyfile		optional path to a PEM-format X.509 key
+
+logging-related options:
+
+-e				enumerate requests
+-q				quiet; disable all logging
 `, VERSION, os.Args[0])
 	}
 
-	var quiet bool
+	var enumerate, quiet bool
 	var port, bindAddr, srvDir, certFile, keyFile string
+	flag.BoolVar(&enumerate, "e", false, "")
 	flag.BoolVar(&quiet, "q", false, "")
 	flag.StringVar(&port, "p", "8000", "")
 	flag.StringVar(&bindAddr, "b", "127.0.0.1", "")
@@ -172,7 +185,9 @@ usage: %s [-q] [-p port] [-d directory] [-c certfile -k keyfile]
 	}
 
 	c := &context{
-		srvDir: srvDir,
+		srvDir:    srvDir,
+		enumerate: enumerate,
+		count:     0,
 	}
 
 	if quiet {
