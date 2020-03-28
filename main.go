@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -68,6 +69,15 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 }
 
 func (c *context) handler(w http.ResponseWriter, r *http.Request) {
+	// The logging being this basic leaves quite a bit to be desired...
+	// TODO: client POST body?
+	// TODO: response code and length for non-chunked transfers
+	//   - would need to wrap http.ResponseWriter
+	//   - would need to print on same line / formatted group, otherwise logging would be clobbered/OOO
+	//     - deferring the entire log line until a response finishes is not good UX
+	//     - would likely need a TUI if i were to go this far
+	log.Printf("%s says %s %s %s", r.RemoteAddr, r.Method, r.Proto, r.Host + r.RequestURI)
+
 	switch r.Method {
 	case http.MethodGet:
 		// path.Join is Cleaned, but docstring for http.ServeFile says joining r.URL.Path isn't safe
@@ -132,8 +142,9 @@ func main() {
 	flag.Usage = func() {
 	    die(`srv ver. %s
 
-usage: %s [-p port] [-d directory] [-c certfile -k keyfile]
+usage: %s [-q] [-p port] [-d directory] [-c certfile -k keyfile]
 
+-q				quiet; disable all logging
 -p port			port to listen on (default: 8000)
 -b address		listener socket's bind address (default: 127.0.0.1)
 -d directory	path to directory to serve (default: .)
@@ -142,7 +153,9 @@ usage: %s [-p port] [-d directory] [-c certfile -k keyfile]
 `, VERSION, os.Args[0])
 	}
 
+	var quiet bool
 	var port, bindAddr, srvDir, certFile, keyFile string
+	flag.BoolVar(&quiet, "q", false, "")
 	flag.StringVar(&port, "p", "8000", "")
 	flag.StringVar(&bindAddr, "b", "127.0.0.1", "")
 	flag.StringVar(&srvDir, "d", ".", "")
@@ -175,12 +188,19 @@ usage: %s [-p port] [-d directory] [-c certfile -k keyfile]
 		srvDir: srvDir,
 	}
 
+	if quiet {
+		log.SetFlags(0)  // disable log formatting to save cpu
+		log.SetOutput(ioutil.Discard)
+	}
+
 	http.HandleFunc("/", c.handler)
 	if certFileSpecified && keyFileSpecified {
 		log.Printf("Serving HTTPS on %s", listenAddr)
-		log.Fatal(http.ListenAndServeTLS(listenAddr, certFile, keyFile, nil))
+		err = http.ListenAndServeTLS(listenAddr, certFile, keyFile, nil)
 	} else {
 		log.Printf("Serving HTTP on %s", listenAddr)
-		log.Fatal(http.ListenAndServe(listenAddr, nil))
+		err = http.ListenAndServe(listenAddr, nil)
 	}
+
+	die(err.Error())
 }
