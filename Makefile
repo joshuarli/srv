@@ -12,11 +12,18 @@ build: clean $(NAME)
 TMP_VERSION_FILE := $(shell tr -dc 'a-f0-9' < /dev/urandom | dd bs=1 count=8 2>/dev/null).go
 $(NAME): main.go
 	sed 's/MAKE_VERSION/$(VERSION)/' .version > $(TMP_VERSION_FILE)
-	go build -o $(NAME) $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
+	go build -o $@ $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
+
+.PHONY: debug
+debug: $(NAME)-debug
+$(NAME)-debug: main.go
+	$(eval override GO_LDFLAGS=)
+	sed 's/MAKE_VERSION/$(VERSION)-DEBUG/' .version > $(TMP_VERSION_FILE)
+	go build -o $@ -gcflags="all=-N -l" $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
 
 .PHONY: clean
 clean:
-	rm -f $(NAME)
+	rm -f $(NAME) $(NAME)-debug
 	rm -rf release
 
 
