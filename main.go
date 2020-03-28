@@ -12,25 +12,12 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	"github.com/joshuarli/srv/internal/humanize"
 )
 
 type context struct {
 	srvDir string
-}
-
-func humanFileSize(nbytes int64) string {
-	if nbytes < 1024 {
-		return fmt.Sprintf("%d", nbytes)
-	}
-	var exp int
-	n := float64(nbytes)
-	for exp = 0; exp < 4; exp++ {
-		n /= 1024
-		if n < 1024 {
-			break
-		}
-	}
-	return fmt.Sprintf("%.1f%c", float64(n), "KMGT"[exp])
 }
 
 func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
@@ -58,7 +45,7 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 		case m&os.ModeType != 0:
 			fmt.Fprintf(&buf, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", name)
 		default:
-			fmt.Fprintf(&buf, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", path, name, humanFileSize(size))
+			fmt.Fprintf(&buf, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", path, name, humanize.FileSize(size))
 		}
 	}
 
