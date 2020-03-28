@@ -132,21 +132,27 @@ func main() {
 	flag.Usage = func() {
 	    die(`srv ver. %s
 
-usage: %s [-p port] [-d directory]
+usage: %s [-p port] [-d directory] [-c certfile -k keyfile]
 
-port				port to listen on (default: 8000)
-directory			path to directory to serve (default: .)
+-p port			port to listen on (default: 8000)
+-d directory	path to directory to serve (default: .)
+-c certfile		optional path to a PEM-format X.509 certificate
+-k keyfile		optional path to a PEM-format X.509 key
 `, VERSION, os.Args[0])
-// srv.crt srv.key		paths to an X509 keypair if you'd like to serve with TLS
 	}
 
-	var port, srvDir string
+	var port, srvDir, certFile, keyFile string
 	flag.StringVar(&port, "p", "8000", "")
 	flag.StringVar(&srvDir, "d", ".", "")
+	flag.StringVar(&certFile, "c", "", "")
+	flag.StringVar(&keyFile, "k", "", "")
 	flag.Parse()
 
-	// TODO srv.crt srv.key paths to an X509 keypair if you'd like to serve with TLS
-	// -c -k must be together, i need custom logic for this too
+	certFileSpecified := certFile != ""
+	keyFileSpecified := keyFile != ""
+	if certFileSpecified != keyFileSpecified {
+		die("You must specify both -c certfile -k keyfile")
+	}
 
 	f, err := os.Open(srvDir)
 	defer f.Close()
@@ -160,10 +166,13 @@ directory			path to directory to serve (default: .)
 	c := &context{
 		srvDir: srvDir,
 	}
-	http.HandleFunc("/", c.handler)
 
 	// go can also pretty easily stamp out self-signed certs, but we'll delegate
 	// that to external tools for now.
-
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	http.HandleFunc("/", c.handler)
+	if certFileSpecified && keyFileSpecified {
+		log.Fatal(http.ListenAndServeTLS(":"+port, certFile, keyFile, nil))
+	} else {
+		log.Fatal(http.ListenAndServe(":"+port, nil))
+	}
 }

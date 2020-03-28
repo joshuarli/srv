@@ -15,3 +15,19 @@ differences between `python -m http.server`:
 ## download
 
 cross-platform static executables can be found [here](https://github.com/joshuarli/srv/releases).
+
+
+## usage
+
+Simply `srv`. Defaults are `-d . -p 8000`.
+
+TLS and HTTP/2 are enabled if you pass `-c certfile -k keyfile`.
+
+self-signed certs:
+
+    openssl req -nodes -new -x509 -keyout key.pem -out cert.pem -subj "/"
+
+or better, locally trusted certs with [mkcert](https://github.com/FiloSottile/mkcert):
+
+    mkcert -install
+    mkcert -key-file key.pem -cert-file cert.pem -ecdsa 127.0.0.1
