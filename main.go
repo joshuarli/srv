@@ -52,10 +52,10 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 		path := path.Join(r.URL.Path, name)
 		switch m := fi.Mode(); {
 		// is a directory - render a link
-		case m & os.ModeDir != 0:
+		case m&os.ModeDir != 0:
 			fmt.Fprintf(&buf, "<tr><td><a href=\"%s/\">%s/</a></td></tr>", path, name)
 		// is not a regular file - don't render a clickable link
-		case m & os.ModeType != 0:
+		case m&os.ModeType != 0:
 			fmt.Fprintf(&buf, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", name)
 		default:
 			fmt.Fprintf(&buf, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", path, name, humanFileSize(size))
@@ -76,7 +76,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 	//   - would need to print on same line / formatted group, otherwise logging would be clobbered/OOO
 	//     - deferring the entire log line until a response finishes is not good UX
 	//     - would likely need a TUI if i were to go this far
-	log.Printf("%s says %s %s %s", r.RemoteAddr, r.Method, r.Proto, r.Host + r.RequestURI)
+	log.Printf("%s says %s %s %s", r.RemoteAddr, r.Method, r.Proto, r.Host+r.RequestURI)
 
 	switch r.Method {
 	case http.MethodGet:
@@ -105,7 +105,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 
 		switch m := fi.Mode(); {
 		// is a directory - serve an index.html if it exists, otherwise generate and serve a directory listing
-		case m & os.ModeDir != 0:
+		case m&os.ModeDir != 0:
 			// XXX: if a symlink has name "index.html", it will be served here.
 			// i could add an extra lstat here, but the scenario is just too rare to justify the additional file operation.
 			html, err := os.Open(path.Join(fp, "index.html"))
@@ -119,10 +119,10 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "failed to render directory listing: "+err.Error(), http.StatusInternalServerError)
 			}
 		// is a regular file - serve its contents
-		case m & os.ModeType == 0:
+		case m&os.ModeType == 0:
 			io.Copy(w, f)
 		// is a symlink - refuse to serve
-		case m & os.ModeSymlink != 0:
+		case m&os.ModeSymlink != 0:
 			http.Error(w, "file is a symlink", http.StatusForbidden)
 		default:
 			http.Error(w, "file isn't a regular file or directory", http.StatusForbidden)
@@ -140,7 +140,7 @@ func die(format string, v ...interface{}) {
 
 func main() {
 	flag.Usage = func() {
-	    die(`srv ver. %s
+		die(`srv ver. %s
 
 usage: %s [-q] [-p port] [-d directory] [-c certfile -k keyfile]
 
@@ -189,7 +189,7 @@ usage: %s [-q] [-p port] [-d directory] [-c certfile -k keyfile]
 	}
 
 	if quiet {
-		log.SetFlags(0)  // disable log formatting to save cpu
+		log.SetFlags(0) // disable log formatting to save cpu
 		log.SetOutput(ioutil.Discard)
 	}
 

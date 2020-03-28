@@ -4,8 +4,9 @@ VERSION := $(shell git describe --tags --exact-match 2>/dev/null || \
 
 GO_LDFLAGS=-ldflags "-s -w"
 
-.PHONY: build
-build: clean $(NAME)
+.PHONY: build debug fmt lint clean release
+
+build: clean fmt lint $(NAME)
 
 # a temporary version file is created from a template in order to inject the VERSION variable into the static build
 # embedding the version into the binary's DWARF table doesn't work because its stripped during the release build
@@ -14,14 +15,18 @@ $(NAME): main.go
 	sed 's/MAKE_VERSION/$(VERSION)/' .version > $(TMP_VERSION_FILE)
 	go build -o $@ $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
 
-.PHONY: debug
 debug: $(NAME)-debug
 $(NAME)-debug: main.go
 	$(eval override GO_LDFLAGS=)
 	sed 's/MAKE_VERSION/$(VERSION)-DEBUG/' .version > $(TMP_VERSION_FILE)
 	go build -o $@ -gcflags="all=-N -l" $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
 
-.PHONY: clean
+fmt:
+	go fmt
+
+lint:
+	golint
+
 clean:
 	rm -f $(NAME) $(NAME)-debug
 	rm -rf release
@@ -43,6 +48,5 @@ endef
 
 GOOSARCHES = linux/arm linux/arm64 linux/amd64 darwin/amd64 openbsd/amd64 freebsd/amd64 netbsd/amd64
 
-.PHONY: release
 release: main.go
 	$(foreach GOOSARCH,$(GOOSARCHES), $(call buildrelease,$(subst /,,$(dir $(GOOSARCH))),$(notdir $(GOOSARCH))))
