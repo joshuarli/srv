@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -128,21 +129,22 @@ func die(format string, v ...interface{}) {
 }
 
 func main() {
-	// maybe should add a -bind domain (localhost, 0.0.0.0, etc.)
 	flag.Usage = func() {
 	    die(`srv ver. %s
 
 usage: %s [-p port] [-d directory] [-c certfile -k keyfile]
 
 -p port			port to listen on (default: 8000)
+-b address		listener socket's bind address (default: 127.0.0.1)
 -d directory	path to directory to serve (default: .)
 -c certfile		optional path to a PEM-format X.509 certificate
 -k keyfile		optional path to a PEM-format X.509 key
 `, VERSION, os.Args[0])
 	}
 
-	var port, srvDir, certFile, keyFile string
+	var port, bindAddr, srvDir, certFile, keyFile string
 	flag.StringVar(&port, "p", "8000", "")
+	flag.StringVar(&bindAddr, "b", "127.0.0.1", "")
 	flag.StringVar(&srvDir, "d", ".", "")
 	flag.StringVar(&certFile, "c", "", "")
 	flag.StringVar(&keyFile, "k", "", "")
@@ -152,6 +154,12 @@ usage: %s [-p port] [-d directory] [-c certfile -k keyfile]
 	keyFileSpecified := keyFile != ""
 	if certFileSpecified != keyFileSpecified {
 		die("You must specify both -c certfile -k keyfile")
+	}
+
+	listenAddr := bindAddr + ":" + port
+	_, err := net.ResolveTCPAddr("tcp", listenAddr)
+	if err != nil {
+		die("Could not resolve the address to listen to: %s", listenAddr)
 	}
 
 	f, err := os.Open(srvDir)
@@ -167,12 +175,12 @@ usage: %s [-p port] [-d directory] [-c certfile -k keyfile]
 		srvDir: srvDir,
 	}
 
-	// go can also pretty easily stamp out self-signed certs, but we'll delegate
-	// that to external tools for now.
 	http.HandleFunc("/", c.handler)
 	if certFileSpecified && keyFileSpecified {
-		log.Fatal(http.ListenAndServeTLS(":"+port, certFile, keyFile, nil))
+		log.Printf("Serving HTTPS on %s", listenAddr)
+		log.Fatal(http.ListenAndServeTLS(listenAddr, certFile, keyFile, nil))
 	} else {
-		log.Fatal(http.ListenAndServe(":"+port, nil))
+		log.Printf("Serving HTTP on %s", listenAddr)
+		log.Fatal(http.ListenAndServe(listenAddr, nil))
 	}
 }

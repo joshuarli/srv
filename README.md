@@ -19,7 +19,7 @@ cross-platform static executables can be found [here](https://github.com/joshuar
 
 ## usage
 
-Simply `srv`. Defaults are `-d . -p 8000`.
+Simply `srv`. Defaults are `-p 8000 -b 127.0.0.1 -d .`.
 
 TLS and HTTP/2 are enabled if you pass `-c certfile -k keyfile`.
 
