@@ -1,15 +1,15 @@
 # srv
 
-minimalist http server and file browser
+minimalist http(s) server and file browser.
 
-differences between `python -m http.server`:
+i wrote this to substitute `python -m http.server`. here are the differences:
 
 - shows file size
 - does not follow symlinks
     - by extension, refuses access to all irregular files
 - serves some automatically detected Content-Type mimetypes for browser previews, as opposed to plain octet-stream
     - note that this is dependent on go's [DetectContentType](https://golang.org/src/net/http/sniff.go)
-- is probably faster (benchmarks soon if i feel like it)
+- is obviously faster
 
 
 ## download
@@ -19,7 +19,7 @@ cross-platform static executables can be found [here](https://github.com/joshuar
 
 ## usage
 
-Simply `srv`. Defaults are `-p 8000 -b 127.0.0.1 -d .`.
+Simply `srv`. Defaults are `-p 8000 -b 127.0.0.1 -d .`
 
 TLS and HTTP/2 are enabled if you pass `-c certfile -k keyfile`.
 
