@@ -65,13 +65,6 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 }
 
 func (c *context) handler(w http.ResponseWriter, r *http.Request) {
-	// The logging being this basic leaves quite a bit to be desired...
-	// TODO: client POST body?
-	// TODO: response code and length for non-chunked transfers
-	//   - would need to wrap http.ResponseWriter
-	//   - would need to print on same line / formatted group, otherwise logging would be clobbered/OOO
-	//     - deferring the entire log line until a response finishes is not good UX
-	//     - would likely need a TUI if i were to go this far
 	log.Printf("%s says %s %s %s", r.RemoteAddr, r.Method, r.Proto, r.Host+r.RequestURI)
 
 	// Tell HTTP 1.1+ clients to not cache responses.
@@ -106,7 +99,8 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		// is a directory - serve an index.html if it exists, otherwise generate and serve a directory listing
 		case m&os.ModeDir != 0:
 			// XXX: if a symlink has name "index.html", it will be served here.
-			// i could add an extra lstat here, but the scenario is just too rare to justify the additional file operation.
+			// i could add an extra lstat here, but the scenario is just too rare
+			// to justify the additional file operation.
 			html, err := os.Open(path.Join(fp, "index.html"))
 			defer html.Close()
 			if err == nil {
@@ -154,7 +148,7 @@ directory       path to directory to serve (default: .)
 	}
 
 	var quiet bool
-	var port, bindAddr, srvDir, certFile, keyFile string
+	var port, bindAddr, certFile, keyFile string
 	flag.BoolVar(&quiet, "q", false, "")
 	flag.StringVar(&port, "p", "8000", "")
 	flag.StringVar(&bindAddr, "b", "127.0.0.1", "")
@@ -162,16 +156,10 @@ directory       path to directory to serve (default: .)
 	flag.StringVar(&keyFile, "k", "", "")
 	flag.Parse()
 
-	srvDir = "."
-	posArgs := flag.Args()
-	if len(posArgs) > 0 {
-		srvDir = posArgs[0]
-	}
-
 	certFileSpecified := certFile != ""
 	keyFileSpecified := keyFile != ""
 	if certFileSpecified != keyFileSpecified {
-		die("You must specify both -c certfile -k keyfile")
+		die("You must specify both -c certfile -k keyfile.")
 	}
 
 	listenAddr := bindAddr + ":" + port
@@ -180,17 +168,18 @@ directory       path to directory to serve (default: .)
 		die("Could not resolve the address to listen to: %s", listenAddr)
 	}
 
+	srvDir := "."
+	posArgs := flag.Args()
+	if len(posArgs) > 0 {
+		srvDir = posArgs[0]
+	}
 	f, err := os.Open(srvDir)
 	defer f.Close()
 	if err != nil {
 		die(err.Error())
 	}
 	if fi, err := f.Stat(); err != nil || !fi.IsDir() {
-		die("%s isn't a directory", srvDir)
-	}
-
-	c := &context{
-		srvDir: srvDir,
+		die("%s isn't a directory.", srvDir)
 	}
 
 	if quiet {
@@ -198,7 +187,12 @@ directory       path to directory to serve (default: .)
 		log.SetOutput(ioutil.Discard)
 	}
 
+	c := &context{
+		srvDir: srvDir,
+	}
+
 	http.HandleFunc("/", c.handler)
+
 	if certFileSpecified && keyFileSpecified {
 		log.Printf("Serving %s over HTTPS on %s", srvDir, listenAddr)
 		err = http.ListenAndServeTLS(listenAddr, certFile, keyFile, nil)
