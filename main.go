@@ -141,14 +141,15 @@ func main() {
 	flag.Usage = func() {
 		die(`srv ver. %s
 
-usage: %s [-q] [-p port] [-d directory] [-c certfile -k keyfile]
+usage: %s [-q] [-p port] [-c certfile -k keyfile] directory
 
--q				quiet; disable all logging
--p port			port to listen on (default: 8000)
--b address		listener socket's bind address (default: 127.0.0.1)
--d directory	path to directory to serve (default: .)
--c certfile		optional path to a PEM-format X.509 certificate
--k keyfile		optional path to a PEM-format X.509 key
+directory       path to directory to serve (default: .)
+
+-q              quiet; disable all logging
+-p port         port to listen on (default: 8000)
+-b address      listener socket's bind address (default: 127.0.0.1)
+-c certfile     optional path to a PEM-format X.509 certificate
+-k keyfile      optional path to a PEM-format X.509 key
 `, VERSION, os.Args[0])
 	}
 
@@ -157,10 +158,15 @@ usage: %s [-q] [-p port] [-d directory] [-c certfile -k keyfile]
 	flag.BoolVar(&quiet, "q", false, "")
 	flag.StringVar(&port, "p", "8000", "")
 	flag.StringVar(&bindAddr, "b", "127.0.0.1", "")
-	flag.StringVar(&srvDir, "d", ".", "")
 	flag.StringVar(&certFile, "c", "", "")
 	flag.StringVar(&keyFile, "k", "", "")
 	flag.Parse()
+
+	srvDir = "."
+	posArgs := flag.Args()
+	if len(posArgs) > 0 {
+		srvDir = posArgs[0]
+	}
 
 	certFileSpecified := certFile != ""
 	keyFileSpecified := keyFile != ""
@@ -194,10 +200,10 @@ usage: %s [-q] [-p port] [-d directory] [-c certfile -k keyfile]
 
 	http.HandleFunc("/", c.handler)
 	if certFileSpecified && keyFileSpecified {
-		log.Printf("Serving HTTPS on %s", listenAddr)
+		log.Printf("Serving %s over HTTPS on %s", srvDir, listenAddr)
 		err = http.ListenAndServeTLS(listenAddr, certFile, keyFile, nil)
 	} else {
-		log.Printf("Serving HTTP on %s", listenAddr)
+		log.Printf("Serving %s over HTTP on %s", srvDir, listenAddr)
 		err = http.ListenAndServe(listenAddr, nil)
 	}
 
