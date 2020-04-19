@@ -70,6 +70,9 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 	//     - would likely need a TUI if i were to go this far
 	log.Printf("%s says %s %s %s", r.RemoteAddr, r.Method, r.Proto, r.Host+r.RequestURI)
 
+	// Tell HTTP 1.1+ clients to not cache responses.
+	w.Header().Set("Cache-Control", "no-store")
+
 	switch r.Method {
 	case http.MethodGet:
 		// path.Join is Cleaned, but docstring for http.ServeFile says joining r.URL.Path isn't safe

@@ -2,11 +2,12 @@
 
 minimalist http(s) server and file browser.
 
-i wrote this to substitute `python -m http.server`. here are the differences:
+i wrote this to substitute `python3 -m http.server`. here are the differences:
 
 - shows file size
 - does not follow symlinks
     - by extension, refuses access to all irregular files
+- by default, tells the client to NOT cache responses
 - serves some automatically detected Content-Type mimetypes for browser previews, as opposed to plain octet-stream
     - note that this is dependent on go's [DetectContentType](https://golang.org/src/net/http/sniff.go)
 - is obviously faster
