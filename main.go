@@ -4,20 +4,20 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"os"
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/joshuarli/srv/internal/humanize"
 )
 
 type context struct {
 	srvDir string
+	quiet  bool
 }
 
 // We write the shortest browser-valid base64 data string,
@@ -64,8 +64,18 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	return nil
 }
 
+func logline(format string, v ...interface{}) {
+	now := time.Now()
+	io.WriteString(os.Stdout, now.Format("2006-01-02 15:04:05"))
+	os.Stdout.Write([]byte("\t"))
+	fmt.Fprintf(os.Stdout, format, v...)
+	os.Stdout.Write([]byte("\n"))
+}
+
 func (c *context) handler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("%s says %s %s %s", r.RemoteAddr, r.Method, r.Proto, r.Host+r.RequestURI)
+	if !c.quiet {
+		logline("%s says %s %s %s", r.RemoteAddr, r.Method, r.Proto, r.Host+r.RequestURI)
+	}
 
 	// Tell HTTP 1.1+ clients to not cache responses.
 	w.Header().Set("Cache-Control", "no-store")
@@ -182,22 +192,22 @@ directory       path to directory to serve (default: .)
 		die("%s isn't a directory.", srvDir)
 	}
 
-	if quiet {
-		log.SetFlags(0) // disable log formatting to save cpu
-		log.SetOutput(ioutil.Discard)
-	}
-
 	c := &context{
 		srvDir: srvDir,
+		quiet:  quiet,
 	}
 
 	http.HandleFunc("/", c.handler)
 
 	if certFileSpecified && keyFileSpecified {
-		log.Printf("Serving %s over HTTPS on %s", srvDir, listenAddr)
+		if !quiet {
+			logline("Serving %s over HTTPS on %s", srvDir, listenAddr)
+		}
 		err = http.ListenAndServeTLS(listenAddr, certFile, keyFile, nil)
 	} else {
-		log.Printf("Serving %s over HTTP on %s", srvDir, listenAddr)
+		if !quiet {
+			logline("Serving %s over HTTP on %s", srvDir, listenAddr)
+		}
 		err = http.ListenAndServe(listenAddr, nil)
 	}
 
