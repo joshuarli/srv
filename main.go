@@ -20,11 +20,18 @@ type context struct {
 	srvDir string
 }
 
+// We write the shortest browser-valid base64 data string,
+// so that the browser does not request the favicon.
+const listingPrelude = `<head><link rel=icon href=data:,><style>* { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style></head>
+<table>`
+
 func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	files, err := f.Readdir(-1)
 	if err != nil {
 		return err
 	}
+
+	io.WriteString(w, listingPrelude)
 
 	sort.Slice(files, func(i, j int) bool {
 		// TODO: add switch to make case sensitive
@@ -34,11 +41,6 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 			strings.ToLower(files[j].Name()),
 		)
 	})
-
-	// We write the shortest browser-valid base64 data string,
-	// so that the browser does not request the favicon.
-	io.WriteString(w, `<head><link rel=icon href=data:,><style>* { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style></head>
-<table>`)
 
 	var fn, fp string
 	for _, fi := range files {
