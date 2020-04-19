@@ -35,9 +35,8 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 		)
 	})
 
-	var buf strings.Builder
 	// We write the shortest browser-valid base64 data string so that the browser does not request the favicon.
-	buf.WriteString(`<head><link rel=icon href=data:,><style>* { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style></head>
+	io.WriteString(w, `<head><link rel=icon href=data:,><style>* { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style></head>
 <table>`)
 
 	for _, fi := range files {
@@ -46,18 +45,16 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 		switch m := fi.Mode(); {
 		// is a directory - render a link
 		case m&os.ModeDir != 0:
-			fmt.Fprintf(&buf, "<tr><td><a href=\"%s/\">%s/</a></td></tr>", path, name)
+			fmt.Fprintf(w, "<tr><td><a href=\"%s/\">%s/</a></td></tr>", path, name)
 		// is not a regular file - don't render a clickable link
 		case m&os.ModeType != 0:
-			fmt.Fprintf(&buf, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", name)
+			fmt.Fprintf(w, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", name)
 		default:
-			fmt.Fprintf(&buf, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", path, name, humanize.FileSize(size))
+			fmt.Fprintf(w, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", path, name, humanize.FileSize(size))
 		}
 	}
 
-	buf.WriteString("</table>")
-
-	fmt.Fprintf(w, buf.String())
+	io.WriteString(w, "</table>")
 	return nil
 }
 
