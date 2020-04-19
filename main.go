@@ -27,7 +27,12 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	}
 
 	sort.Slice(files, func(i, j int) bool {
-		return strings.ToLower(files[i].Name()) < strings.ToLower(files[j].Name())
+		// TODO: add switch to make case sensitive
+		// TODO: add switch to disable natural sort
+		return humanize.NaturalLess(
+			strings.ToLower(files[i].Name()),
+			strings.ToLower(files[j].Name()),
+		)
 	})
 
 	var buf strings.Builder
