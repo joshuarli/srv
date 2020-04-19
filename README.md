@@ -7,10 +7,13 @@ i wrote this to substitute `python3 -m http.server`. here are the differences:
 - shows file size
 - does not follow symlinks
     - by extension, refuses access to all irregular files
-- by default, tells the client to NOT cache responses
 - serves some automatically detected Content-Type mimetypes for browser previews, as opposed to plain octet-stream
     - note that this is dependent on go's [DetectContentType](https://golang.org/src/net/http/sniff.go)
-- is much faster (see [benchmarks](#benchmarks), mostly in part due to golang and some of my own choices
+- by default, tells the client to NOT cache responses
+- TLS support
+- is nearly 40x faster (see [benchmarks](#benchmarks), mostly in part due to golang and some of my own choices
+
+you _could_ achieve some of these bullet points (e.g. TLS support, response caching) by wrapping python HTTPServer and only using python stdlib, but that hurts from a default usability perspective.
 
 
 ## download
