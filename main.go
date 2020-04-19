@@ -35,22 +35,26 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 		)
 	})
 
-	// We write the shortest browser-valid base64 data string so that the browser does not request the favicon.
+	// We write the shortest browser-valid base64 data string,
+	// so that the browser does not request the favicon.
 	io.WriteString(w, `<head><link rel=icon href=data:,><style>* { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style></head>
 <table>`)
 
+	var fn, fp string
 	for _, fi := range files {
-		name, size := fi.Name(), fi.Size()
-		path := path.Join(r.URL.Path, name)
+		fn = fi.Name()
+		fp = path.Join(r.URL.Path, fn)
 		switch m := fi.Mode(); {
 		// is a directory - render a link
 		case m&os.ModeDir != 0:
-			fmt.Fprintf(w, "<tr><td><a href=\"%s/\">%s/</a></td></tr>", path, name)
-		// is not a regular file - don't render a clickable link
-		case m&os.ModeType != 0:
-			fmt.Fprintf(w, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", name)
+			fmt.Fprintf(w, "<tr><td><a href=\"%s/\">%s/</a></td></tr>", fp, fn)
+		// is a regular file - render both a link and a file size
+		case m&os.ModeType == 0:
+			fs := humanize.FileSize(fi.Size())
+			fmt.Fprintf(w, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", fp, fn, fs)
+		// otherwise, don't render a clickable link
 		default:
-			fmt.Fprintf(w, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", path, name, humanize.FileSize(size))
+			fmt.Fprintf(w, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", fn)
 		}
 	}
 
