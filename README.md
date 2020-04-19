@@ -52,16 +52,16 @@ Python 3.7.3 `python3 -m http.server &>/dev/null`
 
 ...not to mention the spew of `BrokenPipeError: [Errno 32] Broken pipe` towards the end.
 
-srv 12ba67bf7 `srv -q`
+srv 0.2 (fully static linux-amd64 build, go1.13.5) `srv -q`
 
     $ ./bench
     Running 5s test @ http://127.0.0.1:8000
       8 threads and 8 connections
       Thread Stats   Avg      Stdev     Max   +/- Stdev
-        Latency   646.27us    1.28ms  17.23ms   93.00%
-        Req/Sec     2.94k   548.07     6.29k    75.43%
-      117690 requests in 5.10s, 98.54MB read
-    Requests/sec:  23084.10
-    Transfer/sec:     19.33MB
+        Latency   648.80us    1.32ms  18.44ms   93.26%
+        Req/Sec     2.96k   489.96     4.82k    72.59%
+      119382 requests in 5.10s, 99.62MB read
+    Requests/sec:  23409.69
+    Transfer/sec:     19.53MB
     wrk is done. response code counts:
-    200     117690
+    200     119382
