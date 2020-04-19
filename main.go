@@ -36,8 +36,9 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	})
 
 	var buf strings.Builder
-	buf.WriteString("<style>* { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style>\n")
-	buf.WriteString("<table>")
+	// We write the shortest browser-valid base64 data string so that the browser does not request the favicon.
+	buf.WriteString(`<head><link rel=icon href=data:,><style>* { font-family: monospace; } table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style></head>
+<table>`)
 
 	for _, fi := range files {
 		name, size := fi.Name(), fi.Size()
