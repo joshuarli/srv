@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -140,7 +141,7 @@ func die(format string, v ...interface{}) {
 
 func main() {
 	flag.Usage = func() {
-		die(`srv ver. %s
+		die(`srv %s (go version %s)
 
 usage: %s [-q] [-p port] [-c certfile -k keyfile] directory
 
@@ -151,7 +152,7 @@ directory       path to directory to serve (default: .)
 -b address      listener socket's bind address (default: 127.0.0.1)
 -c certfile     optional path to a PEM-format X.509 certificate
 -k keyfile      optional path to a PEM-format X.509 key
-`, VERSION, os.Args[0])
+`, VERSION, runtime.Version(), os.Args[0])
 	}
 
 	var quiet bool
