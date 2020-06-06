@@ -87,10 +87,9 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		fp := path.Join(c.srvDir, r.URL.Path)
 
 		f, openErr := os.Open(fp)
-		// because openErr (PathError) doesn't have a formal API for getting further error granularity,
+		// Because openErr (PathError) doesn't have a formal API for getting further error granularity,
 		// we need to stat it if we want to return a proper 404 when appropriate.
-		// also, golang doesn't provide a (*File).Lstat.
-		// using f.Stat() will follow symlinks, which is not what we want because we want to isolate
+		// Using f.Stat() will follow symlinks, which is not what we want because we want to isolate
 		// all file serving to within the desired directory. So need to use os.Lstat.
 		fi, statErr := os.Lstat(fp)
 		if statErr != nil {
