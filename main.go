@@ -87,8 +87,6 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		fp := path.Join(c.srvDir, r.URL.Path)
 
 		f, openErr := os.Open(fp)
-		defer f.Close()
-
 		// because openErr (PathError) doesn't have a formal API for getting further error granularity,
 		// we need to stat it if we want to return a proper 404 when appropriate.
 		// also, golang doesn't provide a (*File).Lstat.
@@ -99,11 +97,11 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "file not found", http.StatusNotFound)
 			return
 		}
-
 		if openErr != nil {
 			http.Error(w, "failed to open file", http.StatusInternalServerError)
 			return
 		}
+		defer f.Close()
 
 		switch m := fi.Mode(); {
 		// is a directory - serve an index.html if it exists, otherwise generate and serve a directory listing
@@ -112,9 +110,9 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			// i could add an extra lstat here, but the scenario is just too rare
 			// to justify the additional file operation.
 			html, err := os.Open(path.Join(fp, "index.html"))
-			defer html.Close()
 			if err == nil {
 				io.Copy(w, html)
+				html.Close()
 				return
 			}
 			err = renderListing(w, r, f)
@@ -184,10 +182,10 @@ directory       path to directory to serve (default: .)
 		srvDir = posArgs[0]
 	}
 	f, err := os.Open(srvDir)
-	defer f.Close()
 	if err != nil {
 		die(err.Error())
 	}
+	defer f.Close()
 	if fi, err := f.Stat(); err != nil || !fi.IsDir() {
 		die("%s isn't a directory.", srvDir)
 	}
