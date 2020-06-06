@@ -170,7 +170,7 @@ directory       path to directory to serve (default: .)
 		die("You must specify both -c certfile -k keyfile.")
 	}
 
-	listenAddr := bindAddr + ":" + port
+	listenAddr := net.JoinHostPort(bindAddr, port)
 	_, err := net.ResolveTCPAddr("tcp", listenAddr)
 	if err != nil {
 		die("Could not resolve the address to listen to: %s", listenAddr)
