@@ -45,7 +45,7 @@ sha512sum release/$(NAME)-$(1)-$(2) > release/$(NAME)-$(1)-$(2).sha512sum;
 rm $(TMP_VERSION_FILE);
 endef
 
-GOOSARCHES = linux/arm linux/arm64 linux/amd64 darwin/amd64 openbsd/amd64 freebsd/amd64 netbsd/amd64
+GOOSARCHES = linux/arm linux/arm64 linux/amd64 darwin/amd64
 
 release: main.go
 	$(foreach GOOSARCH,$(GOOSARCHES), $(call buildrelease,$(subst /,,$(dir $(GOOSARCH))),$(notdir $(GOOSARCH))))
