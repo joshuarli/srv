@@ -1,6 +1,5 @@
 NAME := srv
-VERSION := $(shell git describe --tags --exact-match 2>/dev/null || \
-			 printf %s\\n "git-$$(git describe --always --dirty)")
+VERSION := $(shell printf git-%s-%s\\n "$$(git describe --tags --abbrev=0)" "$$(git log -1 --pretty=format:'%h')")
 
 GO_LDFLAGS=-ldflags "-s -w"
 
