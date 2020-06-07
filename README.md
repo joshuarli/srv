@@ -2,6 +2,8 @@
 
 minimalist http(s) server and file browser.
 
+<img src="https://github.com/joshuarli/srv/blob/master/.github/screenshot.jpg?raw=true" width="200">
+
 
 ## download
 
