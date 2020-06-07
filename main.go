@@ -56,6 +56,7 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 			fs := humanize.FileSize(fi.Size())
 			fmt.Fprintf(w, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", fp, fn, fs)
 		// otherwise, don't render a clickable link
+		// TODO: render symlink dests
 		default:
 			fmt.Fprintf(w, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", fn)
 		}
@@ -116,6 +117,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 				html.Close()
 				return
 			}
+			html.Close()
 			err = renderListing(w, r, f)
 			if err != nil {
 				http.Error(w, "failed to render directory listing: "+err.Error(), http.StatusInternalServerError)
@@ -125,6 +127,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			io.Copy(w, f)
 		// is a symlink - refuse to serve
 		case m&os.ModeSymlink != 0:
+			// TODO: add a flag to allow serving symlinks
 			http.Error(w, "file is a symlink", http.StatusForbidden)
 		default:
 			http.Error(w, "file isn't a regular file or directory", http.StatusForbidden)
