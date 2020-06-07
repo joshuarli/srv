@@ -67,7 +67,8 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 }
 
 func (c *context) handler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("\t%s says %s %s %s", r.RemoteAddr, r.Method, r.Proto, r.Host+r.RequestURI)
+	// TODO: better log styling
+	log.Printf("\t%s [%s]: %s %s %s", r.RemoteAddr, r.UserAgent(), r.Method, r.Proto, r.Host+r.RequestURI)
 
 	// Tell HTTP 1.1+ clients to not cache responses.
 	w.Header().Set("Cache-Control", "no-store")
