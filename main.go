@@ -87,18 +87,19 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		// however this seems fine? might want to add a small test suite with some dir traversal attacks
 		fp := path.Join(c.srvDir, r.URL.Path)
 
-		f, openErr := os.Open(fp)
-		// Because openErr (PathError) doesn't have a formal API for getting further error granularity,
-		// we need to stat it if we want to return a proper 404 when appropriate.
-		// Using f.Stat() will follow symlinks, which is not what we want because we want to isolate
-		// all file serving to within the desired directory. So need to use os.Lstat.
-		fi, statErr := os.Lstat(fp)
-		if statErr != nil {
-			http.Error(w, "file not found", http.StatusNotFound)
+		fi, err := os.Lstat(fp)
+		if err != nil {
+			if os.IsNotExist(err) {
+				http.Error(w, "file not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, fmt.Sprintf("failed to stat file: %s", err), http.StatusInternalServerError)
 			return
 		}
-		if openErr != nil {
-			http.Error(w, "failed to open file", http.StatusInternalServerError)
+
+		f, err := os.Open(fp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to open file: %s", err), http.StatusInternalServerError)
 			return
 		}
 		defer f.Close()
