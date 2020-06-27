@@ -4,20 +4,21 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"path"
+	"runtime"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/joshuarli/srv/internal/humanize"
 )
 
 type context struct {
 	srvDir string
-	quiet  bool
 }
 
 // We write the shortest browser-valid base64 data string,
@@ -55,6 +56,7 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 			fs := humanize.FileSize(fi.Size())
 			fmt.Fprintf(w, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", fp, fn, fs)
 		// otherwise, don't render a clickable link
+		// TODO: render symlink dests
 		default:
 			fmt.Fprintf(w, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", fn)
 		}
@@ -64,18 +66,9 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 	return nil
 }
 
-func logline(format string, v ...interface{}) {
-	now := time.Now()
-	io.WriteString(os.Stdout, now.Format("2006-01-02 15:04:05"))
-	os.Stdout.Write([]byte("\t"))
-	fmt.Fprintf(os.Stdout, format, v...)
-	os.Stdout.Write([]byte("\n"))
-}
-
 func (c *context) handler(w http.ResponseWriter, r *http.Request) {
-	if !c.quiet {
-		logline("%s says %s %s %s", r.RemoteAddr, r.Method, r.Proto, r.Host+r.RequestURI)
-	}
+	// TODO: better log styling
+	log.Printf("\t%s [%s]: %s %s %s", r.RemoteAddr, r.UserAgent(), r.Method, r.Proto, r.Host+r.RequestURI)
 
 	// Tell HTTP 1.1+ clients to not cache responses.
 	w.Header().Set("Cache-Control", "no-store")
@@ -86,24 +79,22 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		// however this seems fine? might want to add a small test suite with some dir traversal attacks
 		fp := path.Join(c.srvDir, r.URL.Path)
 
-		f, openErr := os.Open(fp)
+		fi, err := os.Lstat(fp)
+		if err != nil {
+			if os.IsNotExist(err) {
+				http.Error(w, "file not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, fmt.Sprintf("failed to stat file: %s", err), http.StatusInternalServerError)
+			return
+		}
+
+		f, err := os.Open(fp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to open file: %s", err), http.StatusInternalServerError)
+			return
+		}
 		defer f.Close()
-
-		// because openErr (PathError) doesn't have a formal API for getting further error granularity,
-		// we need to stat it if we want to return a proper 404 when appropriate.
-		// also, golang doesn't provide a (*File).Lstat.
-		// using f.Stat() will follow symlinks, which is not what we want because we want to isolate
-		// all file serving to within the desired directory. So need to use os.Lstat.
-		fi, statErr := os.Lstat(fp)
-		if statErr != nil {
-			http.Error(w, "file not found", http.StatusNotFound)
-			return
-		}
-
-		if openErr != nil {
-			http.Error(w, "failed to open file", http.StatusInternalServerError)
-			return
-		}
 
 		switch m := fi.Mode(); {
 		// is a directory - serve an index.html if it exists, otherwise generate and serve a directory listing
@@ -112,11 +103,12 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			// i could add an extra lstat here, but the scenario is just too rare
 			// to justify the additional file operation.
 			html, err := os.Open(path.Join(fp, "index.html"))
-			defer html.Close()
 			if err == nil {
 				io.Copy(w, html)
+				html.Close()
 				return
 			}
+			html.Close()
 			err = renderListing(w, r, f)
 			if err != nil {
 				http.Error(w, "failed to render directory listing: "+err.Error(), http.StatusInternalServerError)
@@ -126,6 +118,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			io.Copy(w, f)
 		// is a symlink - refuse to serve
 		case m&os.ModeSymlink != 0:
+			// TODO: add a flag to allow serving symlinks
 			http.Error(w, "file is a symlink", http.StatusForbidden)
 		default:
 			http.Error(w, "file isn't a regular file or directory", http.StatusForbidden)
@@ -143,7 +136,7 @@ func die(format string, v ...interface{}) {
 
 func main() {
 	flag.Usage = func() {
-		die(`srv ver. %s
+		die(`srv %s (go version %s)
 
 usage: %s [-q] [-p port] [-c certfile -k keyfile] directory
 
@@ -154,7 +147,7 @@ directory       path to directory to serve (default: .)
 -b address      listener socket's bind address (default: 127.0.0.1)
 -c certfile     optional path to a PEM-format X.509 certificate
 -k keyfile      optional path to a PEM-format X.509 key
-`, VERSION, os.Args[0])
+`, VERSION, runtime.Version(), os.Args[0])
 	}
 
 	var quiet bool
@@ -172,7 +165,7 @@ directory       path to directory to serve (default: .)
 		die("You must specify both -c certfile -k keyfile.")
 	}
 
-	listenAddr := bindAddr + ":" + port
+	listenAddr := net.JoinHostPort(bindAddr, port)
 	_, err := net.ResolveTCPAddr("tcp", listenAddr)
 	if err != nil {
 		die("Could not resolve the address to listen to: %s", listenAddr)
@@ -184,30 +177,30 @@ directory       path to directory to serve (default: .)
 		srvDir = posArgs[0]
 	}
 	f, err := os.Open(srvDir)
-	defer f.Close()
 	if err != nil {
 		die(err.Error())
 	}
+	defer f.Close()
 	if fi, err := f.Stat(); err != nil || !fi.IsDir() {
 		die("%s isn't a directory.", srvDir)
 	}
 
 	c := &context{
 		srvDir: srvDir,
-		quiet:  quiet,
+	}
+
+	if quiet {
+		log.SetFlags(0) // disable log formatting to save cpu
+		log.SetOutput(ioutil.Discard)
 	}
 
 	http.HandleFunc("/", c.handler)
 
 	if certFileSpecified && keyFileSpecified {
-		if !quiet {
-			logline("Serving %s over HTTPS on %s", srvDir, listenAddr)
-		}
+		log.Printf("\tServing %s over HTTPS on %s", srvDir, listenAddr)
 		err = http.ListenAndServeTLS(listenAddr, certFile, keyFile, nil)
 	} else {
-		if !quiet {
-			logline("Serving %s over HTTP on %s", srvDir, listenAddr)
-		}
+		log.Printf("\tServing %s over HTTP on %s", srvDir, listenAddr)
 		err = http.ListenAndServe(listenAddr, nil)
 	}
 

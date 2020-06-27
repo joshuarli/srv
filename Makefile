@@ -1,6 +1,5 @@
 NAME := srv
-VERSION := $(shell git describe --tags --exact-match 2>/dev/null || \
-			 printf %s\\n "git-$$(git describe --always --dirty)")
+VERSION := $(shell printf git-%s-%s\\n "$$(git describe --tags --abbrev=0)" "$$(git log -1 --pretty=format:'%h')")
 
 GO_LDFLAGS=-ldflags "-s -w"
 
@@ -46,7 +45,7 @@ sha512sum release/$(NAME)-$(1)-$(2) > release/$(NAME)-$(1)-$(2).sha512sum;
 rm $(TMP_VERSION_FILE);
 endef
 
-GOOSARCHES = linux/arm linux/arm64 linux/amd64 darwin/amd64 openbsd/amd64 freebsd/amd64 netbsd/amd64
+GOOSARCHES = linux/arm linux/arm64 linux/amd64 darwin/amd64
 
 release: main.go
 	$(foreach GOOSARCH,$(GOOSARCHES), $(call buildrelease,$(subst /,,$(dir $(GOOSARCH))),$(notdir $(GOOSARCH))))
