@@ -32,5 +32,10 @@ TBD
 - Rendering performance and size was improved.
 - Browsers should not request favicons anymore.
 
-## [0.1] - 2019-09-03
+## 0.1 - 2019-09-03
 Initial release.
+
+
+[0.4]: https://github.com/joshuarli/srv/compare/0.3...HEAD
+[0.3]: https://github.com/joshuarli/srv/compare/0.2...0.3
+[0.2]: https://github.com/joshuarli/srv/compare/0.1...0.2
