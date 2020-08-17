@@ -81,6 +81,9 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 
 		fi, err := os.Lstat(fp)
 		if err != nil {
+			// NOTE: errors.Is is generally preferred, since it can unwrap errors created like so:
+			//     fmt.Errorf("can't read file: %w", err)
+			// But in this case we just want to check right after a stat.
 			if os.IsNotExist(err) {
 				http.Error(w, "file not found", http.StatusNotFound)
 				return
