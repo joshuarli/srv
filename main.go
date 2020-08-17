@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"html"
 	"io"
 	"io/ioutil"
 	"log"
@@ -45,7 +46,7 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 
 	var fn, fp string
 	for _, fi := range files {
-		fn = fi.Name()
+		fn = html.EscapeString(fi.Name())
 		fp = path.Join(r.URL.Path, fn)
 		switch m := fi.Mode(); {
 		// is a directory - render a link
