@@ -12,13 +12,13 @@ build: clean fmt lint $(NAME)
 TMP_VERSION_FILE := $(shell tr -dc 'a-f0-9' < /dev/urandom | dd bs=1 count=8 2>/dev/null).go
 $(NAME): main.go
 	sed 's/MAKE_VERSION/$(VERSION)/' .version > $(TMP_VERSION_FILE)
-	go build -o $@ $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
+	go build -trimpath -o $@ $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
 
 debug: $(NAME)-debug
 $(NAME)-debug: main.go
 	$(eval override GO_LDFLAGS=)
 	sed 's/MAKE_VERSION/$(VERSION)-DEBUG/' .version > $(TMP_VERSION_FILE)
-	go build -o $@ -gcflags="all=-N -l" $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
+	go build -trimpath -o $@ -gcflags="all=-N -l" $(GO_LDFLAGS) .; rm $(TMP_VERSION_FILE)
 
 fmt:
 	go fmt
@@ -37,7 +37,7 @@ GO_LDFLAGS_STATIC=-tags netgo -ldflags "-s -w -extldflags -static"
 
 define buildrelease
 sed 's/MAKE_VERSION/$(VERSION)/' .version > $(TMP_VERSION_FILE);
-GOOS=$(1) GOARCH=$(2) go build -a \
+GOOS=$(1) GOARCH=$(2) go build -trimpath -a \
 	 -o release/$(NAME)-$(1)-$(2) \
 	 $(GO_LDFLAGS_STATIC) . ;
 upx -9 release/$(NAME)-$(1)-$(2);
