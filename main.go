@@ -138,6 +138,9 @@ func die(format string, v ...interface{}) {
 	os.Exit(1)
 }
 
+// VERSION passed at build time
+var VERSION = "unknown"
+
 func main() {
 	flag.Usage = func() {
 		die(`srv %s (go version %s)
