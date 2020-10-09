@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/joshuarli/srv/internal/humanize"
 )
@@ -119,7 +120,9 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			}
 		// is a regular file - serve its contents
 		case m&os.ModeType == 0:
-			io.Copy(w, f)
+			// This deduces a mimetype from the file extension first, then falls back to DetectContentType.
+			// io.Copy'ing would only DetectContentType, which is insufficient for like, css files.
+			http.ServeContent(w, r, fp, time.Time{}, f)
 		// is a symlink - refuse to serve
 		case m&os.ModeSymlink != 0:
 			// TODO: add a flag to allow serving symlinks
