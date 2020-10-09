@@ -6,9 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.4] - unreleased
+## [0.4] - 2020-10-09
+### Changed
+- Mimetypes are now inferred firstly by file extension, and go's DetectContentType failing that.
 
-TBD
+### Fixed
+- As a result of the mimetype inference change mentioned above, CSS files for example will now be served with the appropriate text/css mimetype.
 
 ## [0.3] - 2020-08-16
 ### Added
