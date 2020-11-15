@@ -77,9 +77,11 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		// path.Join is Cleaned, but docstring for http.ServeFile says joining r.URL.Path isn't safe
-		// however this seems fine? might want to add a small test suite with some dir traversal attacks
-		fp := path.Join(c.srvDir, r.URL.Path)
+		// We use the entire net.url.URL here rather than URL.Path which doesn't contain
+		// the query or the fragment (filepaths with ? or # won't be able to be located on disk.)
+		// This url as a string is fine to use in path.Join because for most requests,
+		// fields other than Path and RawQuery will be empty.
+		fp := path.Join(c.srvDir, r.URL.String())
 
 		fi, err := os.Lstat(fp)
 		if err != nil {
