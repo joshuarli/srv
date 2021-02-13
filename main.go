@@ -3,12 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"html"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"runtime"
@@ -45,18 +45,18 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 		)
 	})
 
-	var fn, fp string
+	var fn, fnEscaped string
 	for _, fi := range files {
-		fn = html.EscapeString(fi.Name())
-		fp = path.Join(r.URL.Path, fn)
+		fn = fi.Name()
+		fnEscaped = url.PathEscape(fn)
 		switch m := fi.Mode(); {
 		// is a directory - render a link
 		case m&os.ModeDir != 0:
-			fmt.Fprintf(w, "<tr><td><a href=\"%s/\">%s/</a></td></tr>", fp, fn)
+			fmt.Fprintf(w, "<tr><td><a href=\"%s/\">%s/</a></td></tr>", fnEscaped, fn)
 		// is a regular file - render both a link and a file size
 		case m&os.ModeType == 0:
 			fs := humanize.FileSize(fi.Size())
-			fmt.Fprintf(w, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", fp, fn, fs)
+			fmt.Fprintf(w, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", fnEscaped, fn, fs)
 		// otherwise, don't render a clickable link
 		// TODO: render symlink dests
 		default:
@@ -81,8 +81,13 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 		// the query or the fragment (filepaths with ? or # won't be able to be located on disk.)
 		// This url as a string is fine to use in path.Join because for most requests,
 		// fields other than Path and RawQuery will be empty.
-		fp := path.Join(c.srvDir, r.URL.String())
-
+		requestURL := r.URL.String()
+		fp, err := url.PathUnescape(requestURL)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to path unescape: %s", err), http.StatusInternalServerError)
+			return
+		}
+		fp = path.Join(c.srvDir, fp)
 		fi, err := os.Lstat(fp)
 		if err != nil {
 			// NOTE: errors.Is is generally preferred, since it can unwrap errors created like so:
