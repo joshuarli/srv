@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -206,7 +205,7 @@ directory       path to directory to serve (default: .)
 
 	if quiet {
 		log.SetFlags(0) // disable log formatting to save cpu
-		log.SetOutput(ioutil.Discard)
+		log.SetOutput(io.Discard)
 	}
 
 	http.HandleFunc("/", c.handler)
