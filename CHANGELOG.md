@@ -6,10 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.5] - Unreleased
+## [0.6] - Unreleased
 
 Nothing planned at the moment.
 
+
+## [0.5] - Feb 14 2021
+### Fixed
+- Correctness fixes with serving more complicated filenames (links needed to be path escaped, and request uris path unescaped).
 
 ## [0.4] - 2020-10-09
 ### Changed
@@ -44,7 +48,8 @@ Nothing planned at the moment.
 Initial release.
 
 
-[0.5]: https://github.com/joshuarli/srv/compare/0.5...HEAD
+[0.6]: https://github.com/joshuarli/srv/compare/0.6...HEAD
+[0.5]: https://github.com/joshuarli/srv/compare/0.4...0.5
 [0.4]: https://github.com/joshuarli/srv/compare/0.3...0.4
 [0.3]: https://github.com/joshuarli/srv/compare/0.2...0.3
 [0.2]: https://github.com/joshuarli/srv/compare/0.1...0.2
