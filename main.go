@@ -58,7 +58,6 @@ func renderListing(w http.ResponseWriter, r *http.Request, f *os.File) error {
 			fs := humanize.FileSize(fi.Size())
 			fmt.Fprintf(w, "<tr><td><a href=\"%s\">%s</a></td><td>%s</td></tr>", fnEscaped, fn, fs)
 		// otherwise, don't render a clickable link
-		// TODO: render symlink dests
 		default:
 			fmt.Fprintf(w, "<tr><td><p style=\"color: #777\">%s</p></td></tr>", fn)
 		}
@@ -77,12 +76,11 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		// We use the entire net.url.URL here rather than URL.Path which doesn't contain
-		// the query or the fragment (filepaths with ? or # won't be able to be located on disk.)
-		// This url as a string is fine to use in path.Join because for most requests,
-		// fields other than Path and RawQuery will be empty.
-		requestURL := r.URL.String()
-		fp, err := url.PathUnescape(requestURL)
+		// Filenames could contain special uri characters, so we use r.RequestURI
+		// instead of r.URL.Path.
+		// XXX: Might also have to do QueryUnescape (and then also QueryEscape in the renderer),
+		// but haven't run into that as a need in my usage.
+		fp, err := url.PathUnescape(r.RequestURI)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("failed to path unescape: %s", err), http.StatusInternalServerError)
 			return
