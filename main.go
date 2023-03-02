@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -84,7 +84,8 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("failed to path unescape: %s", err), http.StatusInternalServerError)
 			return
 		}
-		fp = path.Join(c.srvDir, fp)
+		fp = filepath.Clean(fp)
+		fp = filepath.Join(c.srvDir, fp)
 		fi, err := os.Lstat(fp)
 		if err != nil {
 			// NOTE: errors.Is is generally preferred, since it can unwrap errors created like so:
@@ -111,7 +112,7 @@ func (c *context) handler(w http.ResponseWriter, r *http.Request) {
 			// XXX: if a symlink has name "index.html", it will be served here.
 			// i could add an extra lstat here, but the scenario is just too rare
 			// to justify the additional file operation.
-			html, err := os.Open(path.Join(fp, "index.html"))
+			html, err := os.Open(filepath.Join(fp, "index.html"))
 			if err == nil {
 				io.Copy(w, html)
 				html.Close()
