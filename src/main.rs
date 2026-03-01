@@ -1,8 +1,9 @@
 use std::{
+    borrow::Cow,
     env,
     fmt::Write as FmtWrite,
     fs::{self, File},
-    io::{self, BufWriter, Read, Write},
+    io::{self, Read, Write},
     net::{TcpListener, TcpStream},
     os::unix::io::AsRawFd,
     path::{Path, PathBuf},
@@ -78,7 +79,10 @@ fn natural_less(s1: &[u8], s2: &[u8]) -> bool {
 
 // --- URL encoding -------------------------------------------------------------
 
-fn percent_decode(s: &str) -> String {
+fn percent_decode<'a>(s: &'a str) -> Cow<'a, str> {
+    if !s.as_bytes().contains(&b'%') {
+        return Cow::Borrowed(s);
+    }
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -93,7 +97,10 @@ fn percent_decode(s: &str) -> String {
         out.push(b[i]);
         i += 1;
     }
-    String::from_utf8_lossy(&out).into_owned()
+    match String::from_utf8(out) {
+        Ok(s) => Cow::Owned(s),
+        Err(e) => Cow::Owned(String::from_utf8_lossy(e.as_bytes()).into_owned()),
+    }
 }
 
 fn hex_val(b: u8) -> Option<u8> {
@@ -129,9 +136,12 @@ fn percent_encode(s: &str) -> String {
 
 // --- Path helpers -------------------------------------------------------------
 
-fn normalize(base: &Path, raw: &str) -> Option<PathBuf> {
+/// Normalize a request path into `out`, reusing its allocation across calls.
+/// Returns `true` if the result is within `base`, `false` for traversal.
+fn normalize_into(base: &Path, raw: &str, out: &mut PathBuf) -> bool {
+    out.as_mut_os_string().clear();
+    out.push(base);
     let raw = raw.split('?').next().unwrap_or("/");
-    let mut out = base.to_path_buf();
     for seg in raw.split('/') {
         match seg {
             "" | "." => {}
@@ -141,11 +151,7 @@ fn normalize(base: &Path, raw: &str) -> Option<PathBuf> {
             s => out.push(s),
         }
     }
-    if out.starts_with(base) {
-        Some(out)
-    } else {
-        None
-    }
+    out.starts_with(base)
 }
 
 // --- MIME types ---------------------------------------------------------------
@@ -252,46 +258,61 @@ fn send_file(file: &File, sock: &TcpStream, _len: u64) -> io::Result<()> {
     Ok(())
 }
 
-// --- HTTP helpers -------------------------------------------------------------
+// --- HTTP helpers (all stack-buffered) ----------------------------------------
 
-fn respond_error(sock: &TcpStream, code: u16, msg: &str) -> io::Result<()> {
-    let body = format!("{code} {msg}");
-    let mut w = BufWriter::new(sock);
-    write!(
-        w,
-        "HTTP/1.1 {code} {msg}\r\n\
-         Content-Type: text/plain\r\n\
-         Content-Length: {}\r\n\
-         Cache-Control: no-store\r\n\
-         Connection: close\r\n\
-         \r\n\
-         {body}",
-        body.len()
-    )?;
-    w.flush()
-}
-
-fn serve_file(sock: &TcpStream, path: &Path, len: u64, content_type: &str) -> io::Result<()> {
-    let file = File::open(path)?;
-    {
-        let mut w = BufWriter::new(sock);
+/// Write HTTP response headers into a 512-byte stack buffer, flush with one write_all.
+fn write_headers(mut sock: &TcpStream, status: u16, reason: &str, ct: &str, cl: u64) -> io::Result<()> {
+    let mut hdr = [0u8; 512];
+    let n = {
+        let mut c = io::Cursor::new(&mut hdr[..]);
         write!(
-            w,
-            "HTTP/1.1 200 OK\r\n\
-             Content-Type: {content_type}\r\n\
-             Content-Length: {len}\r\n\
+            c,
+            "HTTP/1.1 {status} {reason}\r\n\
+             Content-Type: {ct}\r\n\
+             Content-Length: {cl}\r\n\
              Cache-Control: no-store\r\n\
              Connection: close\r\n\
              \r\n"
         )?;
-        w.flush()?;
-    }
+        c.position() as usize
+    };
+    sock.write_all(&hdr[..n])
+}
+
+/// Write a complete error response (headers + body) from a stack buffer.
+fn write_error(mut sock: &TcpStream, code: u16, msg: &str) -> io::Result<()> {
+    let mut buf = [0u8; 512];
+    let body_len = 4 + msg.len(); // "NNN msg"
+    let n = {
+        let mut c = io::Cursor::new(&mut buf[..]);
+        write!(
+            c,
+            "HTTP/1.1 {code} {msg}\r\n\
+             Content-Type: text/plain\r\n\
+             Content-Length: {body_len}\r\n\
+             Cache-Control: no-store\r\n\
+             Connection: close\r\n\
+             \r\n\
+             {code} {msg}"
+        )?;
+        c.position() as usize
+    };
+    sock.write_all(&buf[..n])
+}
+
+fn serve_file(sock: &TcpStream, path: &Path, len: u64, content_type: &str) -> io::Result<()> {
+    let file = File::open(path)?;
+    write_headers(sock, 200, "OK", content_type, len)?;
     send_file(&file, sock, len)
 }
 
 // --- Directory listing --------------------------------------------------------
 
-fn render_listing(dir: &Path) -> io::Result<String> {
+/// Render a directory listing into `html`, reusing its allocation across calls.
+fn render_listing(dir: &Path, html: &mut String) -> io::Result<()> {
+    html.clear();
+    html.push_str(LISTING_PRELUDE);
+
     let mut entries: Vec<_> = fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
     entries.sort_by(|a, b| {
         let an = a.file_name().to_string_lossy().to_lowercase();
@@ -305,7 +326,6 @@ fn render_listing(dir: &Path) -> io::Result<String> {
         }
     });
 
-    let mut html = String::from(LISTING_PRELUDE);
     for entry in &entries {
         let name_os = entry.file_name();
         let name = name_os.to_string_lossy();
@@ -330,108 +350,110 @@ fn render_listing(dir: &Path) -> io::Result<String> {
         }
     }
     html.push_str("</table>");
-    Ok(html)
+    Ok(())
 }
 
 // --- Connection handler -------------------------------------------------------
 
-fn handle(mut stream: TcpStream, srv_dir: &Path, quiet: bool) -> io::Result<()> {
+fn handle(
+    mut stream: TcpStream,
+    srv_dir: &Path,
+    quiet: bool,
+    fp: &mut PathBuf,
+    html_buf: &mut String,
+) -> io::Result<()> {
     let mut buf = [0u8; 8192];
     let mut pos = 0usize;
 
-    let (method, path) = 'read: {
-        loop {
-            if pos == buf.len() {
-                respond_error(&stream, 431, "Request Header Fields Too Large")?;
-                return Ok(());
-            }
-            let n = stream.read(&mut buf[pos..])?;
-            if n == 0 {
-                return Ok(());
-            }
-            pos += n;
-            let mut headers = [httparse::EMPTY_HEADER; 16];
-            let mut req = httparse::Request::new(&mut headers);
-            match req.parse(&buf[..pos]) {
-                Ok(httparse::Status::Complete(_)) => {
-                    break 'read (
-                        req.method.unwrap_or("").to_owned(),
-                        req.path.unwrap_or("/").to_owned(),
-                    );
-                }
-                Ok(httparse::Status::Partial) => continue,
-                Err(_) => {
-                    respond_error(&stream, 400, "Bad Request")?;
-                    return Ok(());
-                }
-            }
+    loop {
+        if pos == buf.len() {
+            return write_error(&stream, 431, "Request Header Fields Too Large");
         }
-    };
+        let n = stream.read(&mut buf[pos..])?;
+        if n == 0 {
+            return Ok(());
+        }
+        pos += n;
+        let mut hdrs = [httparse::EMPTY_HEADER; 16];
+        let mut req = httparse::Request::new(&mut hdrs);
+        match req.parse(&buf[..pos]) {
+            Ok(httparse::Status::Complete(_)) => {
+                // method and path borrow directly from the stack buf — no allocation
+                return dispatch(
+                    &stream,
+                    req.method.unwrap_or(""),
+                    req.path.unwrap_or("/"),
+                    srv_dir,
+                    quiet,
+                    fp,
+                    html_buf,
+                );
+            }
+            Ok(httparse::Status::Partial) => continue,
+            Err(_) => return write_error(&stream, 400, "Bad Request"),
+        }
+    }
+}
 
+fn dispatch(
+    sock: &TcpStream,
+    method: &str,
+    path_raw: &str,
+    srv_dir: &Path,
+    quiet: bool,
+    fp: &mut PathBuf,
+    html_buf: &mut String,
+) -> io::Result<()> {
     if !quiet {
-        let peer = stream
-            .peer_addr()
-            .map(|a| a.to_string())
-            .unwrap_or_default();
-        eprintln!("\t{peer}: {method} {path}");
+        // Display formats directly into stderr — no intermediate String
+        if let Ok(peer) = sock.peer_addr() {
+            eprintln!("\t{peer}: {method} {path_raw}");
+        }
     }
 
     if method != "GET" {
-        respond_error(&stream, 405, "Method Not Allowed")?;
-        return Ok(());
+        return write_error(sock, 405, "Method Not Allowed");
     }
 
-    let decoded = percent_decode(&path);
-    let fp = match normalize(srv_dir, &decoded) {
-        Some(p) => p,
-        None => {
-            respond_error(&stream, 403, "Forbidden")?;
-            return Ok(());
-        }
-    };
+    // Cow: returns borrowed slice when path has no percent-encoding (common case)
+    let decoded = percent_decode(path_raw);
 
-    let meta = match fs::symlink_metadata(&fp) {
+    // Reuses PathBuf allocation across requests
+    if !normalize_into(srv_dir, &decoded, fp) {
+        return write_error(sock, 403, "Forbidden");
+    }
+
+    let meta = match fs::symlink_metadata(&**fp) {
         Ok(m) => m,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            respond_error(&stream, 404, "Not Found")?;
-            return Ok(());
+            return write_error(sock, 404, "Not Found");
         }
         Err(e) => return Err(e),
     };
 
     let ft = meta.file_type();
     if ft.is_dir() {
-        let index = fp.join("index.html");
-        if let Ok(idx_meta) = fs::metadata(&index) {
+        // Push/pop to reuse fp's allocation instead of fp.join()
+        fp.push("index.html");
+        if let Ok(idx_meta) = fs::metadata(&**fp) {
             if idx_meta.is_file() {
-                return serve_file(
-                    &stream,
-                    &index,
-                    idx_meta.len(),
-                    "text/html; charset=utf-8",
-                );
+                let result = serve_file(sock, fp, idx_meta.len(), "text/html; charset=utf-8");
+                fp.pop();
+                return result;
             }
         }
-        let html = render_listing(&fp)?;
-        let mut w = BufWriter::new(&stream);
-        write!(
-            w,
-            "HTTP/1.1 200 OK\r\n\
-             Content-Type: text/html; charset=utf-8\r\n\
-             Content-Length: {}\r\n\
-             Cache-Control: no-store\r\n\
-             Connection: close\r\n\
-             \r\n",
-            html.len()
-        )?;
-        w.write_all(html.as_bytes())?;
-        w.flush()?;
+        fp.pop();
+
+        render_listing(fp, html_buf)?;
+        write_headers(sock, 200, "OK", "text/html; charset=utf-8", html_buf.len() as u64)?;
+        let mut w: &TcpStream = sock;
+        w.write_all(html_buf.as_bytes())?;
     } else if ft.is_file() {
-        serve_file(&stream, &fp, meta.len(), mime(&fp))?;
+        serve_file(sock, fp, meta.len(), mime(fp))?;
     } else if ft.is_symlink() {
-        respond_error(&stream, 403, "Forbidden: symlinks not served")?;
+        write_error(sock, 403, "Forbidden: symlinks not served")?;
     } else {
-        respond_error(&stream, 403, "Forbidden: not a regular file or directory")?;
+        write_error(sock, 403, "Forbidden: not a regular file or directory")?;
     }
 
     Ok(())
@@ -501,10 +523,14 @@ fn main() {
 
     eprintln!("\tServing {} over HTTP on {addr}", srv_dir.display());
 
+    // Reusable buffers — amortized zero allocation after first request
+    let mut fp = PathBuf::new();
+    let mut html_buf = String::new();
+
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
-                if let Err(e) = handle(s, &srv_dir, quiet) {
+                if let Err(e) = handle(s, &srv_dir, quiet, &mut fp, &mut html_buf) {
                     eprintln!("error: {e}");
                 }
             }
@@ -569,7 +595,6 @@ mod tests {
 
     #[test]
     fn natural_less_leading_zeros() {
-        // equal numeric value, fewer leading zeros sorts first
         assert!(natural_less(b"file01", b"file001"));
     }
 
@@ -596,24 +621,30 @@ mod tests {
 
     #[test]
     fn percent_decode_passthrough() {
-        assert_eq!(percent_decode("hello"), "hello");
+        assert_eq!(percent_decode("hello").as_ref(), "hello");
+    }
+
+    #[test]
+    fn percent_decode_passthrough_borrows() {
+        // fast path: must return Borrowed, not Owned
+        assert!(matches!(percent_decode("hello"), Cow::Borrowed(_)));
     }
 
     #[test]
     fn percent_decode_space() {
-        assert_eq!(percent_decode("hello%20world"), "hello world");
+        assert_eq!(percent_decode("hello%20world").as_ref(), "hello world");
     }
 
     #[test]
     fn percent_decode_slash() {
-        assert_eq!(percent_decode("%2Fetc%2Fpasswd"), "/etc/passwd");
+        assert_eq!(percent_decode("%2Fetc%2Fpasswd").as_ref(), "/etc/passwd");
     }
 
     #[test]
     fn percent_decode_invalid_seq() {
-        assert_eq!(percent_decode("100%"), "100%");
-        assert_eq!(percent_decode("%ZZ"), "%ZZ");
-        assert_eq!(percent_decode("%0"), "%0");
+        assert_eq!(percent_decode("100%").as_ref(), "100%");
+        assert_eq!(percent_decode("%ZZ").as_ref(), "%ZZ");
+        assert_eq!(percent_decode("%0").as_ref(), "%0");
     }
 
     #[test]
@@ -632,72 +663,89 @@ mod tests {
     #[test]
     fn percent_roundtrip() {
         let input = "file with spaces & (parens)";
-        assert_eq!(percent_decode(&percent_encode(input)), input);
+        assert_eq!(percent_decode(&percent_encode(input)).as_ref(), input);
     }
 
-    // --- normalize ---------------------------------------------------------------
+    // --- normalize_into ----------------------------------------------------------
+
+    fn normalize_test(base: &str, raw: &str) -> Option<PathBuf> {
+        let base = Path::new(base);
+        let mut fp = PathBuf::new();
+        if normalize_into(base, raw, &mut fp) {
+            Some(fp)
+        } else {
+            None
+        }
+    }
 
     #[test]
     fn normalize_root() {
-        let base = Path::new("/srv");
-        assert_eq!(normalize(base, "/"), Some(PathBuf::from("/srv")));
+        assert_eq!(normalize_test("/srv", "/"), Some(PathBuf::from("/srv")));
     }
 
     #[test]
     fn normalize_subpath() {
-        let base = Path::new("/srv");
         assert_eq!(
-            normalize(base, "/foo/bar"),
+            normalize_test("/srv", "/foo/bar"),
             Some(PathBuf::from("/srv/foo/bar"))
         );
     }
 
     #[test]
     fn normalize_traversal_basic() {
-        let base = Path::new("/srv/public");
-        assert_eq!(normalize(base, "/../../../etc/passwd"), None);
+        assert_eq!(normalize_test("/srv/public", "/../../../etc/passwd"), None);
     }
 
     #[test]
     fn normalize_traversal_partial() {
-        let base = Path::new("/srv/public");
-        assert_eq!(normalize(base, "/foo/../../etc/passwd"), None);
+        assert_eq!(
+            normalize_test("/srv/public", "/foo/../../etc/passwd"),
+            None
+        );
     }
 
     #[test]
     fn normalize_traversal_deep() {
-        let base = Path::new("/srv/public");
         assert_eq!(
-            normalize(base, "/foo/bar/../../../etc/passwd"),
+            normalize_test("/srv/public", "/foo/bar/../../../etc/passwd"),
             None
         );
     }
 
     #[test]
     fn normalize_benign_parent() {
-        let base = Path::new("/srv");
         assert_eq!(
-            normalize(base, "/foo/../bar"),
+            normalize_test("/srv", "/foo/../bar"),
             Some(PathBuf::from("/srv/bar"))
         );
     }
 
     #[test]
     fn normalize_dot_segments() {
-        let base = Path::new("/srv");
         assert_eq!(
-            normalize(base, "/./foo/./bar"),
+            normalize_test("/srv", "/./foo/./bar"),
             Some(PathBuf::from("/srv/foo/bar"))
         );
     }
 
     #[test]
     fn normalize_strips_query() {
-        let base = Path::new("/srv");
         assert_eq!(
-            normalize(base, "/foo?v=123"),
+            normalize_test("/srv", "/foo?v=123"),
             Some(PathBuf::from("/srv/foo"))
         );
+    }
+
+    #[test]
+    fn normalize_reuses_buffer() {
+        let base = Path::new("/srv");
+        let mut fp = PathBuf::new();
+        normalize_into(base, "/first", &mut fp);
+        let ptr1 = fp.as_os_str().as_encoded_bytes().as_ptr();
+        normalize_into(base, "/second", &mut fp);
+        let ptr2 = fp.as_os_str().as_encoded_bytes().as_ptr();
+        // Same backing allocation (path "/srv/second" fits in buffer from "/srv/first")
+        assert_eq!(ptr1, ptr2);
     }
 
     // --- mime --------------------------------------------------------------------
@@ -719,9 +767,6 @@ mod tests {
 
     // --- Integration tests (real TCP) --------------------------------------------
 
-    /// Spin up the server on an OS-assigned port, returning the listener address.
-    /// The server runs in a background thread handling one request per call to
-    /// `accept`. Returns (addr, join_handle_dropper).
     struct TestServer {
         addr: std::net::SocketAddr,
         _dir: tempfile::TempDir,
@@ -733,7 +778,6 @@ mod tests {
         fn new() -> Self {
             let dir = tempfile::tempdir().unwrap();
 
-            // Populate fixture files
             fs::write(dir.path().join("hello.txt"), "hello world").unwrap();
             fs::write(dir.path().join("style.css"), "body{}").unwrap();
             fs::create_dir(dir.path().join("sub")).unwrap();
@@ -751,11 +795,13 @@ mod tests {
 
             let thread = std::thread::spawn(move || {
                 listener.set_nonblocking(true).unwrap();
+                let mut fp = PathBuf::new();
+                let mut html_buf = String::new();
                 while !shut.load(std::sync::atomic::Ordering::Relaxed) {
                     match listener.accept() {
                         Ok((stream, _)) => {
                             stream.set_nonblocking(false).unwrap();
-                            let _ = handle(stream, &srv_dir, true);
+                            let _ = handle(stream, &srv_dir, true, &mut fp, &mut html_buf);
                         }
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                             std::thread::sleep(std::time::Duration::from_millis(5));
@@ -846,11 +892,9 @@ mod tests {
         let (headers, body) = srv.get("/");
         assert!(headers.contains("200 OK"));
         assert!(headers.contains("text/html"));
-        // Check the prelude styling is present
         assert!(body.contains("font-family: monospace"));
         assert!(body.contains("<table>"));
         assert!(body.contains("</table>"));
-        // Files and dirs should appear
         assert!(body.contains("hello.txt"));
         assert!(body.contains("sub/"));
     }
@@ -910,9 +954,7 @@ mod tests {
     fn integration_directory_listing_encodes_filenames() {
         let srv = TestServer::new();
         let (_, body) = srv.get("/");
-        // "file 2.txt" should appear percent-encoded in the href
         assert!(body.contains("file%202.txt"));
-        // but the display name should be readable
         assert!(body.contains("file 2.txt"));
     }
 }
