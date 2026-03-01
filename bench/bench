@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-
-HERE="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-wrk -t8 -c8 -d5s -s "${HERE}/main.lua" http://127.0.0.1:8000

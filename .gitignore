@@ -1,4 +1,1 @@
-srv
-srv-debug
-build/
-release/
+target
