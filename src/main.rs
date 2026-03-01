@@ -1,7 +1,8 @@
 use std::{
     borrow::Cow,
+    cmp::Ordering,
     env,
-    fmt::Write as FmtWrite,
+    fmt::Write as _,
     fs::{self, File},
     io::{self, Read, Write},
     net::{TcpListener, TcpStream},
@@ -9,8 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const LISTING_PRELUDE: &str =
-    "<head><link rel=icon href=data:,><style>* { font-family: monospace; } \
+const LISTING_PRELUDE: &str = "<head><link rel=icon href=data:,><style>* { font-family: monospace; } \
      table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style></head>\n\
      <table>";
 
@@ -33,53 +33,56 @@ fn file_size(n: u64) -> String {
 }
 
 // Ported from github.com/fvbommel/util sortorder/natsort.go (via Go version)
-fn natural_less(s1: &[u8], s2: &[u8]) -> bool {
-    let (mut i1, mut i2) = (0usize, 0usize);
+fn natural_cmp(s1: &[u8], s2: &[u8]) -> Ordering {
+    let (mut i1, mut i2) = (0, 0);
     while i1 < s1.len() && i2 < s2.len() {
         let (c1, c2) = (s1[i1], s2[i2]);
         let (d1, d2) = (c1.is_ascii_digit(), c2.is_ascii_digit());
-        if d1 != d2 {
-            return d1;
-        }
-        if !d1 {
-            if c1 != c2 {
-                return c1 < c2;
-            }
-            i1 += 1;
-            i2 += 1;
-        } else {
-            while i1 < s1.len() && s1[i1] == b'0' {
-                i1 += 1;
-            }
-            while i2 < s2.len() && s2[i2] == b'0' {
-                i2 += 1;
-            }
-            let (nz1, nz2) = (i1, i2);
-            while i1 < s1.len() && s1[i1].is_ascii_digit() {
-                i1 += 1;
-            }
-            while i2 < s2.len() && s2[i2].is_ascii_digit() {
-                i2 += 1;
-            }
-            let (len1, len2) = (i1 - nz1, i2 - nz2);
-            if len1 != len2 {
-                return len1 < len2;
-            }
-            let (nr1, nr2) = (&s1[nz1..i1], &s2[nz2..i2]);
-            if nr1 != nr2 {
-                return nr1 < nr2;
-            }
-            if nz1 != nz2 {
-                return nz1 < nz2;
+        match (d1, d2) {
+            (true, false) => return Ordering::Less,
+            (false, true) => return Ordering::Greater,
+            (false, false) => match c1.cmp(&c2) {
+                Ordering::Equal => {
+                    i1 += 1;
+                    i2 += 1;
+                }
+                ord => return ord,
+            },
+            (true, true) => {
+                while i1 < s1.len() && s1[i1] == b'0' {
+                    i1 += 1;
+                }
+                while i2 < s2.len() && s2[i2] == b'0' {
+                    i2 += 1;
+                }
+                let (nz1, nz2) = (i1, i2);
+                while i1 < s1.len() && s1[i1].is_ascii_digit() {
+                    i1 += 1;
+                }
+                while i2 < s2.len() && s2[i2].is_ascii_digit() {
+                    i2 += 1;
+                }
+                match (i1 - nz1).cmp(&(i2 - nz2)) {
+                    Ordering::Equal => {}
+                    ord => return ord,
+                }
+                match s1[nz1..i1].cmp(&s2[nz2..i2]) {
+                    Ordering::Equal => {}
+                    ord => return ord,
+                }
+                match nz1.cmp(&nz2) {
+                    Ordering::Equal => {}
+                    ord => return ord,
+                }
             }
         }
     }
-    s1.len() < s2.len()
+    s1.len().cmp(&s2.len())
 }
 
 // --- URL encoding -------------------------------------------------------------
 
-fn percent_decode<'a>(s: &'a str) -> Cow<'a, str> {
+fn percent_decode(s: &str) -> Cow<'_, str> {
     if !s.as_bytes().contains(&b'%') {
         return Cow::Borrowed(s);
     }
@@ -87,20 +90,21 @@ fn percent_decode<'a>(s: &'a str) -> Cow<'a, str> {
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            if let (Some(h), Some(l)) = (hex_val(b[i + 1]), hex_val(b[i + 2])) {
-                out.push((h << 4) | l);
-                i += 3;
-                continue;
-            }
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && let (Some(h), Some(l)) = (hex_val(b[i + 1]), hex_val(b[i + 2]))
+        {
+            out.push((h << 4) | l);
+            i += 3;
+            continue;
         }
         out.push(b[i]);
         i += 1;
     }
-    match String::from_utf8(out) {
-        Ok(s) => Cow::Owned(s),
-        Err(e) => Cow::Owned(String::from_utf8_lossy(e.as_bytes()).into_owned()),
-    }
+    Cow::Owned(
+        String::from_utf8(out)
+            .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()),
+    )
 }
 
 fn hex_val(b: u8) -> Option<u8> {
@@ -157,11 +161,7 @@ fn normalize_into(base: &Path, raw: &str, out: &mut PathBuf) -> bool {
 // --- MIME types ---------------------------------------------------------------
 
 fn mime(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-    {
+    match path.extension().and_then(|e| e.to_str()).unwrap_or("") {
         "html" | "htm" => "text/html; charset=utf-8",
         "css" => "text/css",
         "js" | "mjs" => "application/javascript",
@@ -192,14 +192,7 @@ fn mime(path: &Path) -> &'static str {
 #[cfg(target_os = "macos")]
 fn send_file(file: &File, sock: &TcpStream, len: u64) -> io::Result<()> {
     unsafe extern "C" {
-        fn sendfile(
-            fd: i32,
-            s: i32,
-            offset: i64,
-            len: *mut i64,
-            hdtr: *mut (),
-            flags: i32,
-        ) -> i32;
+        fn sendfile(fd: i32, s: i32, offset: i64, len: *mut i64, hdtr: *mut (), flags: i32) -> i32;
     }
     let mut remaining = len as i64;
     let mut offset: i64 = 0;
@@ -238,8 +231,7 @@ fn send_file(file: &File, sock: &TcpStream, len: u64) -> io::Result<()> {
     let mut offset: i64 = 0;
     let mut remaining = len as usize;
     while remaining > 0 {
-        let n =
-            unsafe { sendfile(sock.as_raw_fd(), file.as_raw_fd(), &mut offset, remaining) };
+        let n = unsafe { sendfile(sock.as_raw_fd(), file.as_raw_fd(), &mut offset, remaining) };
         if n == -1 {
             let e = io::Error::last_os_error();
             if e.kind() == io::ErrorKind::Interrupted {
@@ -260,8 +252,13 @@ fn send_file(file: &File, sock: &TcpStream, _len: u64) -> io::Result<()> {
 
 // --- HTTP helpers (all stack-buffered) ----------------------------------------
 
-/// Write HTTP response headers into a 512-byte stack buffer, flush with one write_all.
-fn write_headers(mut sock: &TcpStream, status: u16, reason: &str, ct: &str, cl: u64) -> io::Result<()> {
+fn write_headers(
+    mut sock: &TcpStream,
+    status: u16,
+    reason: &str,
+    ct: &str,
+    cl: u64,
+) -> io::Result<()> {
     let mut hdr = [0u8; 512];
     let n = {
         let mut c = io::Cursor::new(&mut hdr[..]);
@@ -279,10 +276,9 @@ fn write_headers(mut sock: &TcpStream, status: u16, reason: &str, ct: &str, cl: 
     sock.write_all(&hdr[..n])
 }
 
-/// Write a complete error response (headers + body) from a stack buffer.
 fn write_error(mut sock: &TcpStream, code: u16, msg: &str) -> io::Result<()> {
     let mut buf = [0u8; 512];
-    let body_len = 4 + msg.len(); // "NNN msg"
+    let body_len = 4 + msg.len();
     let n = {
         let mut c = io::Cursor::new(&mut buf[..]);
         write!(
@@ -308,25 +304,21 @@ fn serve_file(sock: &TcpStream, path: &Path, len: u64, content_type: &str) -> io
 
 // --- Directory listing --------------------------------------------------------
 
-/// Render a directory listing into `html`, reusing its allocation across calls.
 fn render_listing(dir: &Path, html: &mut String) -> io::Result<()> {
     html.clear();
     html.push_str(LISTING_PRELUDE);
 
-    let mut entries: Vec<_> = fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
-    entries.sort_by(|a, b| {
-        let an = a.file_name().to_string_lossy().to_lowercase();
-        let bn = b.file_name().to_string_lossy().to_lowercase();
-        if natural_less(an.as_bytes(), bn.as_bytes()) {
-            std::cmp::Ordering::Less
-        } else if natural_less(bn.as_bytes(), an.as_bytes()) {
-            std::cmp::Ordering::Greater
-        } else {
-            std::cmp::Ordering::Equal
-        }
-    });
+    // Precompute lowercase sort keys (Schwartzian transform)
+    let mut entries: Vec<_> = fs::read_dir(dir)?
+        .filter_map(|e| e.ok())
+        .map(|e| {
+            let key = e.file_name().to_string_lossy().to_lowercase();
+            (key, e)
+        })
+        .collect();
+    entries.sort_by(|(a, _), (b, _)| natural_cmp(a.as_bytes(), b.as_bytes()));
 
-    for entry in &entries {
+    for (_, entry) in &entries {
         let name_os = entry.file_name();
         let name = name_os.to_string_lossy();
         let meta = match entry.metadata() {
@@ -346,117 +338,113 @@ fn render_listing(dir: &Path, html: &mut String) -> io::Result<()> {
             )
             .unwrap();
         } else {
-            write!(html, "<tr><td><p style=\"color: #777\">{name}</p></td></tr>").unwrap();
+            write!(
+                html,
+                "<tr><td><p style=\"color: #777\">{name}</p></td></tr>"
+            )
+            .unwrap();
         }
     }
     html.push_str("</table>");
     Ok(())
 }
 
-// --- Connection handler -------------------------------------------------------
+// --- Server ------------------------------------------------------------------
 
-fn handle(
-    mut stream: TcpStream,
-    srv_dir: &Path,
+struct Server {
+    dir: PathBuf,
     quiet: bool,
-    fp: &mut PathBuf,
-    html_buf: &mut String,
-) -> io::Result<()> {
-    let mut buf = [0u8; 8192];
-    let mut pos = 0usize;
-
-    loop {
-        if pos == buf.len() {
-            return write_error(&stream, 431, "Request Header Fields Too Large");
-        }
-        let n = stream.read(&mut buf[pos..])?;
-        if n == 0 {
-            return Ok(());
-        }
-        pos += n;
-        let mut hdrs = [httparse::EMPTY_HEADER; 16];
-        let mut req = httparse::Request::new(&mut hdrs);
-        match req.parse(&buf[..pos]) {
-            Ok(httparse::Status::Complete(_)) => {
-                // method and path borrow directly from the stack buf — no allocation
-                return dispatch(
-                    &stream,
-                    req.method.unwrap_or(""),
-                    req.path.unwrap_or("/"),
-                    srv_dir,
-                    quiet,
-                    fp,
-                    html_buf,
-                );
-            }
-            Ok(httparse::Status::Partial) => continue,
-            Err(_) => return write_error(&stream, 400, "Bad Request"),
-        }
-    }
+    fp: PathBuf,
+    html: String,
 }
 
-fn dispatch(
-    sock: &TcpStream,
-    method: &str,
-    path_raw: &str,
-    srv_dir: &Path,
-    quiet: bool,
-    fp: &mut PathBuf,
-    html_buf: &mut String,
-) -> io::Result<()> {
-    if !quiet {
-        // Display formats directly into stderr — no intermediate String
-        if let Ok(peer) = sock.peer_addr() {
-            eprintln!("\t{peer}: {method} {path_raw}");
-        }
-    }
+impl Server {
+    fn handle(&mut self, mut stream: TcpStream) -> io::Result<()> {
+        let mut buf = [0u8; 8192];
+        let mut pos = 0usize;
 
-    if method != "GET" {
-        return write_error(sock, 405, "Method Not Allowed");
-    }
-
-    // Cow: returns borrowed slice when path has no percent-encoding (common case)
-    let decoded = percent_decode(path_raw);
-
-    // Reuses PathBuf allocation across requests
-    if !normalize_into(srv_dir, &decoded, fp) {
-        return write_error(sock, 403, "Forbidden");
-    }
-
-    let meta = match fs::symlink_metadata(&**fp) {
-        Ok(m) => m,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            return write_error(sock, 404, "Not Found");
-        }
-        Err(e) => return Err(e),
-    };
-
-    let ft = meta.file_type();
-    if ft.is_dir() {
-        // Push/pop to reuse fp's allocation instead of fp.join()
-        fp.push("index.html");
-        if let Ok(idx_meta) = fs::metadata(&**fp) {
-            if idx_meta.is_file() {
-                let result = serve_file(sock, fp, idx_meta.len(), "text/html; charset=utf-8");
-                fp.pop();
-                return result;
+        loop {
+            if pos == buf.len() {
+                return write_error(&stream, 431, "Request Header Fields Too Large");
+            }
+            let n = stream.read(&mut buf[pos..])?;
+            if n == 0 {
+                return Ok(());
+            }
+            pos += n;
+            let mut hdrs = [httparse::EMPTY_HEADER; 16];
+            let mut req = httparse::Request::new(&mut hdrs);
+            match req.parse(&buf[..pos]) {
+                Ok(httparse::Status::Complete(_)) => {
+                    return self.dispatch(
+                        &stream,
+                        req.method.unwrap_or(""),
+                        req.path.unwrap_or("/"),
+                    );
+                }
+                Ok(httparse::Status::Partial) => continue,
+                Err(_) => return write_error(&stream, 400, "Bad Request"),
             }
         }
-        fp.pop();
-
-        render_listing(fp, html_buf)?;
-        write_headers(sock, 200, "OK", "text/html; charset=utf-8", html_buf.len() as u64)?;
-        let mut w: &TcpStream = sock;
-        w.write_all(html_buf.as_bytes())?;
-    } else if ft.is_file() {
-        serve_file(sock, fp, meta.len(), mime(fp))?;
-    } else if ft.is_symlink() {
-        write_error(sock, 403, "Forbidden: symlinks not served")?;
-    } else {
-        write_error(sock, 403, "Forbidden: not a regular file or directory")?;
     }
 
-    Ok(())
+    fn dispatch(&mut self, sock: &TcpStream, method: &str, path_raw: &str) -> io::Result<()> {
+        if !self.quiet
+            && let Ok(peer) = sock.peer_addr()
+        {
+            eprintln!("\t{peer}: {method} {path_raw}");
+        }
+
+        if method != "GET" {
+            return write_error(sock, 405, "Method Not Allowed");
+        }
+
+        let decoded = percent_decode(path_raw);
+        if !normalize_into(&self.dir, &decoded, &mut self.fp) {
+            return write_error(sock, 403, "Forbidden");
+        }
+
+        let meta = match fs::symlink_metadata(self.fp.as_path()) {
+            Ok(m) => m,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return write_error(sock, 404, "Not Found");
+            }
+            Err(e) => return Err(e),
+        };
+
+        let ft = meta.file_type();
+        if ft.is_dir() {
+            self.fp.push("index.html");
+            if let Ok(idx_meta) = fs::metadata(self.fp.as_path())
+                && idx_meta.is_file()
+            {
+                let result =
+                    serve_file(sock, &self.fp, idx_meta.len(), "text/html; charset=utf-8");
+                self.fp.pop();
+                return result;
+            }
+            self.fp.pop();
+
+            render_listing(&self.fp, &mut self.html)?;
+            write_headers(
+                sock,
+                200,
+                "OK",
+                "text/html; charset=utf-8",
+                self.html.len() as u64,
+            )?;
+            let mut w: &TcpStream = sock;
+            w.write_all(self.html.as_bytes())?;
+        } else if ft.is_file() {
+            serve_file(sock, &self.fp, meta.len(), mime(&self.fp))?;
+        } else if ft.is_symlink() {
+            write_error(sock, 403, "Forbidden: symlinks not served")?;
+        } else {
+            write_error(sock, 403, "Forbidden: not a regular file or directory")?;
+        }
+
+        Ok(())
+    }
 }
 
 // --- main --------------------------------------------------------------------
@@ -467,28 +455,17 @@ fn die(msg: &str) -> ! {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
     let mut quiet = false;
     let mut port = String::from("8000");
     let mut bind = String::from("127.0.0.1");
     let mut dir = String::from(".");
 
-    let mut i = 1usize;
-    while i < args.len() {
-        match args[i].as_str() {
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
             "-q" => quiet = true,
-            "-p" => {
-                i += 1;
-                if i < args.len() {
-                    port = args[i].clone();
-                }
-            }
-            "-b" => {
-                i += 1;
-                if i < args.len() {
-                    bind = args[i].clone();
-                }
-            }
+            "-p" => port = args.next().unwrap_or_else(|| die("-p requires a value")),
+            "-b" => bind = args.next().unwrap_or_else(|| die("-b requires a value")),
             "-h" | "--help" => {
                 eprintln!(
                     "usage: srv [-q] [-p port] [-b address] [directory]\n\
@@ -500,37 +477,35 @@ fn main() {
                 );
                 std::process::exit(0);
             }
-            arg => {
-                dir = arg.to_owned();
-            }
+            _ => dir = arg,
         }
-        i += 1;
     }
 
-    let srv_dir = match fs::canonicalize(&dir) {
+    let dir = match fs::canonicalize(&dir) {
         Ok(p) => p,
         Err(e) => die(&format!("{dir}: {e}")),
     };
-    match fs::metadata(&srv_dir) {
-        Ok(m) if m.is_dir() => {}
-        Ok(_) => die(&format!("{dir} is not a directory")),
-        Err(e) => die(&format!("{dir}: {e}")),
+    if !dir.is_dir() {
+        die(&format!("{} is not a directory", dir.display()));
     }
 
     let addr = format!("{bind}:{port}");
-    let listener = TcpListener::bind(&addr)
-        .unwrap_or_else(|e| die(&format!("failed to bind {addr}: {e}")));
+    let listener =
+        TcpListener::bind(&addr).unwrap_or_else(|e| die(&format!("failed to bind {addr}: {e}")));
 
-    eprintln!("\tServing {} over HTTP on {addr}", srv_dir.display());
+    eprintln!("\tServing {} over HTTP on {addr}", dir.display());
 
-    // Reusable buffers — amortized zero allocation after first request
-    let mut fp = PathBuf::new();
-    let mut html_buf = String::new();
+    let mut srv = Server {
+        dir,
+        quiet,
+        fp: PathBuf::new(),
+        html: String::new(),
+    };
 
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
-                if let Err(e) = handle(s, &srv_dir, quiet, &mut fp, &mut html_buf) {
+                if let Err(e) = srv.handle(s) {
                     eprintln!("error: {e}");
                 }
             }
@@ -577,44 +552,44 @@ mod tests {
         assert_eq!(file_size(1024u64 * 1024 * 1024 * 1024), "1.0T");
     }
 
-    // --- natural_less ------------------------------------------------------------
+    // --- natural_cmp -------------------------------------------------------------
 
     #[test]
-    fn natural_less_basic() {
-        assert!(natural_less(b"a", b"b"));
-        assert!(!natural_less(b"b", b"a"));
-        assert!(!natural_less(b"a", b"a"));
+    fn natural_cmp_basic() {
+        assert_eq!(natural_cmp(b"a", b"b"), Ordering::Less);
+        assert_eq!(natural_cmp(b"b", b"a"), Ordering::Greater);
+        assert_eq!(natural_cmp(b"a", b"a"), Ordering::Equal);
     }
 
     #[test]
-    fn natural_less_numeric() {
-        assert!(natural_less(b"file2", b"file10"));
-        assert!(!natural_less(b"file10", b"file2"));
-        assert!(natural_less(b"file1", b"file2"));
+    fn natural_cmp_numeric() {
+        assert_eq!(natural_cmp(b"file2", b"file10"), Ordering::Less);
+        assert_eq!(natural_cmp(b"file10", b"file2"), Ordering::Greater);
+        assert_eq!(natural_cmp(b"file1", b"file2"), Ordering::Less);
     }
 
     #[test]
-    fn natural_less_leading_zeros() {
-        assert!(natural_less(b"file01", b"file001"));
+    fn natural_cmp_leading_zeros() {
+        assert_eq!(natural_cmp(b"file01", b"file001"), Ordering::Less);
     }
 
     #[test]
-    fn natural_less_digits_before_letters() {
-        assert!(natural_less(b"1abc", b"abc"));
-        assert!(!natural_less(b"abc", b"1abc"));
+    fn natural_cmp_digits_before_letters() {
+        assert_eq!(natural_cmp(b"1abc", b"abc"), Ordering::Less);
+        assert_eq!(natural_cmp(b"abc", b"1abc"), Ordering::Greater);
     }
 
     #[test]
-    fn natural_less_prefix() {
-        assert!(natural_less(b"file", b"file1"));
-        assert!(!natural_less(b"file1", b"file"));
+    fn natural_cmp_prefix() {
+        assert_eq!(natural_cmp(b"file", b"file1"), Ordering::Less);
+        assert_eq!(natural_cmp(b"file1", b"file"), Ordering::Greater);
     }
 
     #[test]
-    fn natural_less_empty() {
-        assert!(natural_less(b"", b"a"));
-        assert!(!natural_less(b"a", b""));
-        assert!(!natural_less(b"", b""));
+    fn natural_cmp_empty() {
+        assert_eq!(natural_cmp(b"", b"a"), Ordering::Less);
+        assert_eq!(natural_cmp(b"a", b""), Ordering::Greater);
+        assert_eq!(natural_cmp(b"", b""), Ordering::Equal);
     }
 
     // --- percent_decode / percent_encode -----------------------------------------
@@ -626,7 +601,6 @@ mod tests {
 
     #[test]
     fn percent_decode_passthrough_borrows() {
-        // fast path: must return Borrowed, not Owned
         assert!(matches!(percent_decode("hello"), Cow::Borrowed(_)));
     }
 
@@ -698,10 +672,7 @@ mod tests {
 
     #[test]
     fn normalize_traversal_partial() {
-        assert_eq!(
-            normalize_test("/srv/public", "/foo/../../etc/passwd"),
-            None
-        );
+        assert_eq!(normalize_test("/srv/public", "/foo/../../etc/passwd"), None);
     }
 
     #[test]
@@ -744,7 +715,6 @@ mod tests {
         let ptr1 = fp.as_os_str().as_encoded_bytes().as_ptr();
         normalize_into(base, "/second", &mut fp);
         let ptr2 = fp.as_os_str().as_encoded_bytes().as_ptr();
-        // Same backing allocation (path "/srv/second" fits in buffer from "/srv/first")
         assert_eq!(ptr1, ptr2);
     }
 
@@ -787,21 +757,25 @@ mod tests {
             fs::write(dir.path().join("a10.txt"), "").unwrap();
             fs::write(dir.path().join("a2.txt"), "").unwrap();
 
-            let srv_dir = fs::canonicalize(dir.path()).unwrap();
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let addr = listener.local_addr().unwrap();
             let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let shut = shutdown.clone();
 
+            let mut srv = Server {
+                dir: fs::canonicalize(dir.path()).unwrap(),
+                quiet: true,
+                fp: PathBuf::new(),
+                html: String::new(),
+            };
+
             let thread = std::thread::spawn(move || {
                 listener.set_nonblocking(true).unwrap();
-                let mut fp = PathBuf::new();
-                let mut html_buf = String::new();
                 while !shut.load(std::sync::atomic::Ordering::Relaxed) {
                     match listener.accept() {
                         Ok((stream, _)) => {
                             stream.set_nonblocking(false).unwrap();
-                            let _ = handle(stream, &srv_dir, true, &mut fp, &mut html_buf);
+                            let _ = srv.handle(stream);
                         }
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                             std::thread::sleep(std::time::Duration::from_millis(5));
