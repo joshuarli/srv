@@ -418,8 +418,7 @@ impl Server {
             if let Ok(idx_meta) = fs::metadata(self.fp.as_path())
                 && idx_meta.is_file()
             {
-                let result =
-                    serve_file(sock, &self.fp, idx_meta.len(), "text/html; charset=utf-8");
+                let result = serve_file(sock, &self.fp, idx_meta.len(), "text/html; charset=utf-8");
                 self.fp.pop();
                 return result;
             }
@@ -466,6 +465,10 @@ fn main() {
             "-q" => quiet = true,
             "-p" => port = args.next().unwrap_or_else(|| die("-p requires a value")),
             "-b" => bind = args.next().unwrap_or_else(|| die("-b requires a value")),
+            "-V" | "--version" => {
+                println!("srv {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
             "-h" | "--help" => {
                 eprintln!(
                     "usage: srv [-q] [-p port] [-b address] [directory]\n\
@@ -473,7 +476,8 @@ fn main() {
                      directory    path to serve (default: .)\n\
                      -q           quiet; disable logging\n\
                      -p port      port to listen on (default: 8000)\n\
-                     -b address   bind address (default: 127.0.0.1)"
+                     -b address   bind address (default: 127.0.0.1)\n\
+                     -V           print version and exit"
                 );
                 std::process::exit(0);
             }

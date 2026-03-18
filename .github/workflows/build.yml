@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'release/*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.runner }}-${{ matrix.target }}
+
+      - name: Run tests
+        run: make test-ci
+
+      - name: Build release
+        run: make release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: srv-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/srv
+
+  release:
+    name: Create release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          V="${VERSION#release/}"
+          for dir in srv-*; do
+            target="${dir#srv-}"
+            mv "$dir/srv" "srv-${V}-${target}"
+          done
+          gh release create "$VERSION" srv-"${V}"-* --title "$V"
