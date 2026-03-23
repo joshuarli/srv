@@ -40,6 +40,144 @@ line-height: 1.6; }\
 
 const MARKDOWN_POSTLUDE: &str = "</article></body></html>";
 
+const DOCS_PAGE: &str = r#"<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Docs</title>
+<link rel="icon" href="data:,">
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: #24292f; background: #fff; }
+#app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+#tree { overflow: auto; border-right: 1px solid #ececf1; background: #f7f7f8; padding: 10px 8px 14px; }
+#viewer { overflow: auto; padding: 24px; }
+#status { color: #8e8ea0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 8px 10px; }
+#tree-root { display: flex; flex-direction: column; gap: 2px; }
+details { margin: 0; border-radius: 8px; }
+summary { cursor: pointer; user-select: none; list-style: none; font-size: 13px; color: #353740; padding: 6px 10px; border-radius: 8px; display: flex; align-items: center; gap: 6px; }
+summary::-webkit-details-marker { display: none; }
+summary::before { content: "▸"; font-size: 10px; color: #8e8ea0; transform-origin: 45% 50%; transition: transform .12s ease; }
+details[open] > summary::before { transform: rotate(90deg); }
+summary:hover { background: #ececf1; }
+.dir-children { margin-left: 14px; padding-left: 8px; border-left: 1px solid #e3e3e8; display: flex; flex-direction: column; gap: 2px; }
+button.file { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 6px 10px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 13px; color: #2f3138; }
+button.file:hover { background: #ececf1; }
+button.file.active { background: #e3e3e8; font-weight: 600; }
+.markdown-body { max-width: 980px; margin: 0 auto; line-height: 1.6; }
+.markdown-body h1, .markdown-body h2 { border-bottom: 1px solid #d0d7de; padding-bottom: .3em; }
+.markdown-body code, .markdown-body pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.markdown-body pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; }
+.markdown-body code { background: rgba(175,184,193,.2); padding: .2em .4em; border-radius: 6px; }
+.markdown-body pre code { background: transparent; padding: 0; }
+.markdown-body table { border-collapse: collapse; }
+.markdown-body th, .markdown-body td { border: 1px solid #d0d7de; padding: 6px 13px; }
+.markdown-body tr:nth-child(2n) { background: #f6f8fa; }
+@media (max-width: 900px) {
+  #app { grid-template-columns: 1fr; }
+  #tree { height: 40vh; border-right: 0; border-bottom: 1px solid #d0d7de; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="tree">
+    <div id="status">Loading files...</div>
+    <div id="tree-root"></div>
+  </aside>
+  <main id="viewer">
+    <article class="markdown-body">
+      <p>Select a Markdown file from the left.</p>
+    </article>
+  </main>
+</div>
+<script>
+const statusEl = document.getElementById("status");
+const treeRootEl = document.getElementById("tree-root");
+const viewerEl = document.getElementById("viewer");
+let activeBtn = null;
+
+function create(tag, attrs = {}) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "text") {
+      el.textContent = v;
+    } else {
+      el.setAttribute(k, v);
+    }
+  }
+  return el;
+}
+
+async function loadMarkdown(path, btn) {
+  if (activeBtn) activeBtn.classList.remove("active");
+  activeBtn = btn || null;
+  if (activeBtn) activeBtn.classList.add("active");
+  statusEl.textContent = path;
+  const resp = await fetch("/__docs__/md?path=" + encodeURIComponent(path));
+  if (!resp.ok) {
+    viewerEl.innerHTML = '<article class="markdown-body"><p>Unable to load file.</p></article>';
+    return;
+  }
+  const html = await resp.text();
+  viewerEl.innerHTML = '<article class="markdown-body">' + html + '</article>';
+}
+
+function renderNode(node, parent) {
+  if (node.dir) {
+    const details = create("details");
+    const summary = create("summary", { text: node.name });
+    details.appendChild(summary);
+    const container = create("div", { class: "dir-children" });
+    details.appendChild(container);
+    parent.appendChild(details);
+    for (const child of node.children || []) renderNode(child, container);
+    return;
+  }
+
+  const btn = create("button", { class: "file", text: node.name, type: "button" });
+  btn.addEventListener("click", () => loadMarkdown(node.path, btn));
+  parent.appendChild(btn);
+}
+
+async function init() {
+  const resp = await fetch("/__docs__/tree");
+  if (!resp.ok) {
+    statusEl.textContent = "Failed to load file tree.";
+    return;
+  }
+  const root = await resp.json();
+  statusEl.textContent = "Ready";
+  treeRootEl.innerHTML = "";
+  for (const child of root.children || []) renderNode(child, treeRootEl);
+}
+
+init();
+</script>
+</body>
+</html>
+"#;
+
+#[derive(Clone, Debug)]
+struct DocsNode {
+    name: String,
+    path: String,
+    dir: bool,
+    children: Vec<DocsNode>,
+}
+
+#[derive(Clone, Debug)]
+struct IgnorePattern {
+    pattern: String,
+    anchored: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct IgnoreRules {
+    patterns: Vec<IgnorePattern>,
+}
+
 // --- humanize -----------------------------------------------------------------
 
 fn file_size(n: u64) -> String {
@@ -227,12 +365,283 @@ fn gfm_options() -> Options {
     opts
 }
 
+fn render_markdown_fragment(markdown: &str, html_out: &mut String) {
+    html_out.clear();
+    let parser = Parser::new_ext(markdown, gfm_options());
+    html::push_html(html_out, parser);
+}
+
 fn render_markdown(markdown: &str, html_out: &mut String) {
     html_out.clear();
     html_out.push_str(MARKDOWN_PRELUDE);
     let parser = Parser::new_ext(markdown, gfm_options());
     html::push_html(html_out, parser);
     html_out.push_str(MARKDOWN_POSTLUDE);
+}
+
+fn is_hidden_dir_name(name: &str) -> bool {
+    name.starts_with('.')
+}
+
+fn glob_match(pattern: &str, text: &str) -> bool {
+    let p = pattern.as_bytes();
+    let t = text.as_bytes();
+    let (mut i, mut j) = (0usize, 0usize);
+    let (mut star, mut match_j) = (None::<usize>, 0usize);
+
+    while j < t.len() {
+        if i < p.len() && (p[i] == b'?' || p[i] == t[j]) {
+            i += 1;
+            j += 1;
+        } else if i < p.len() && p[i] == b'*' {
+            star = Some(i);
+            i += 1;
+            match_j = j;
+        } else if let Some(star_i) = star {
+            i = star_i + 1;
+            match_j += 1;
+            j = match_j;
+        } else {
+            return false;
+        }
+    }
+
+    while i < p.len() && p[i] == b'*' {
+        i += 1;
+    }
+    i == p.len()
+}
+
+fn read_ignore_rules(root: &Path) -> IgnoreRules {
+    let path = root.join(".gitignore");
+    let mut rules = IgnoreRules::default();
+    let Ok(raw) = fs::read_to_string(path) else {
+        return rules;
+    };
+
+    for line in raw.lines() {
+        let mut line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with('!') {
+            continue;
+        }
+        if let Some(stripped) = line.strip_prefix("./") {
+            line = stripped;
+        }
+
+        let anchored = line.starts_with('/');
+        if anchored {
+            line = line.trim_start_matches('/');
+        }
+
+        line = line.trim_end_matches('/');
+        if line.is_empty() {
+            continue;
+        }
+
+        rules.patterns.push(IgnorePattern {
+            pattern: line.to_string(),
+            anchored,
+        });
+    }
+
+    rules
+}
+
+fn is_gitignored_dir(rel: &str, name: &str, rules: &IgnoreRules) -> bool {
+    for rule in &rules.patterns {
+        let pat = rule.pattern.as_str();
+        if rule.anchored {
+            if glob_match(pat, rel) || rel.starts_with(&format!("{pat}/")) {
+                return true;
+            }
+            continue;
+        }
+
+        if pat.contains('/') {
+            if glob_match(pat, rel) || rel.ends_with(&format!("/{pat}")) {
+                return true;
+            }
+            continue;
+        }
+
+        if glob_match(pat, name) {
+            return true;
+        }
+    }
+    false
+}
+
+fn json_string(s: &str, out: &mut String) {
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => write!(out, "\\u{:04x}", c as u32).unwrap(),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+fn node_to_json(node: &DocsNode, out: &mut String) {
+    out.push('{');
+    out.push_str("\"name\":");
+    json_string(&node.name, out);
+    out.push(',');
+    out.push_str("\"path\":");
+    json_string(&node.path, out);
+    out.push(',');
+    out.push_str("\"dir\":");
+    out.push_str(if node.dir { "true" } else { "false" });
+    if node.dir {
+        out.push(',');
+        out.push_str("\"children\":[");
+        for (idx, child) in node.children.iter().enumerate() {
+            if idx > 0 {
+                out.push(',');
+            }
+            node_to_json(child, out);
+        }
+        out.push(']');
+    }
+    out.push('}');
+}
+
+fn rel_to_web_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn walk_docs_dir(
+    root: &Path,
+    rel: &Path,
+    ignore: &IgnoreRules,
+    parallel: bool,
+) -> io::Result<Option<DocsNode>> {
+    let dir_path = if rel.as_os_str().is_empty() {
+        root.to_path_buf()
+    } else {
+        root.join(rel)
+    };
+
+    let mut entries: Vec<_> = fs::read_dir(&dir_path)?.filter_map(|e| e.ok()).collect();
+    entries.sort_by(|a, b| {
+        let an = a.file_name().to_string_lossy().to_lowercase();
+        let bn = b.file_name().to_string_lossy().to_lowercase();
+        natural_cmp(an.as_bytes(), bn.as_bytes())
+    });
+
+    let mut file_nodes = Vec::new();
+    let mut subdirs = Vec::new();
+
+    for entry in entries {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let ft = meta.file_type();
+        if ft.is_dir() {
+            if is_hidden_dir_name(&name) {
+                continue;
+            }
+            let child_rel = rel.join(&name);
+            let rel_str = rel_to_web_path(&child_rel);
+            if is_gitignored_dir(&rel_str, &name, ignore) {
+                continue;
+            }
+            subdirs.push((name, child_rel));
+        } else if ft.is_file() {
+            let fp = entry.path();
+            if is_markdown(&fp) {
+                let rel_path = rel_to_web_path(&rel.join(&name));
+                file_nodes.push(DocsNode {
+                    name,
+                    path: rel_path,
+                    dir: false,
+                    children: Vec::new(),
+                });
+            }
+        }
+    }
+
+    let mut dir_nodes = Vec::new();
+    if parallel && !subdirs.is_empty() {
+        std::thread::scope(|scope| {
+            let mut jobs = Vec::new();
+            for (_, child_rel) in &subdirs {
+                jobs.push(scope.spawn(move || walk_docs_dir(root, child_rel, ignore, false)));
+            }
+
+            for job in jobs {
+                let joined = match job.join() {
+                    Ok(v) => v,
+                    Err(_) => return Err(io::Error::other("docs tree worker thread panicked")),
+                }?;
+                if let Some(node) = joined {
+                    dir_nodes.push(node);
+                }
+            }
+            Ok::<(), io::Error>(())
+        })?;
+    } else {
+        for (_, child_rel) in &subdirs {
+            if let Some(node) = walk_docs_dir(root, child_rel, ignore, false)? {
+                dir_nodes.push(node);
+            }
+        }
+    }
+
+    let name = if rel.as_os_str().is_empty() {
+        "/".to_string()
+    } else {
+        rel.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string()
+    };
+
+    let mut children = Vec::with_capacity(dir_nodes.len() + file_nodes.len());
+    children.extend(dir_nodes);
+    children.extend(file_nodes);
+
+    if !rel.as_os_str().is_empty() && children.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(DocsNode {
+        name,
+        path: rel_to_web_path(rel),
+        dir: true,
+        children,
+    }))
+}
+
+fn render_docs_tree_json(root: &Path, out: &mut String) -> io::Result<()> {
+    let ignore = read_ignore_rules(root);
+    let root_node = walk_docs_dir(root, Path::new(""), &ignore, true)?.unwrap_or(DocsNode {
+        name: "/".to_string(),
+        path: String::new(),
+        dir: true,
+        children: Vec::new(),
+    });
+    out.clear();
+    node_to_json(&root_node, out);
+    Ok(())
+}
+
+fn query_param(path_raw: &str, key: &str) -> Option<String> {
+    let query = path_raw.split_once('?')?.1;
+    for part in query.split('&') {
+        let (k, v) = part.split_once('=').unwrap_or((part, ""));
+        if k == key {
+            return Some(percent_decode(v).into_owned());
+        }
+    }
+    None
 }
 
 // --- Zero-copy file transfer --------------------------------------------------
@@ -344,6 +753,12 @@ fn write_error(mut sock: &TcpStream, code: u16, msg: &str) -> io::Result<()> {
     sock.write_all(&buf[..n])
 }
 
+fn write_body(sock: &TcpStream, ct: &str, body: &[u8]) -> io::Result<()> {
+    write_headers(sock, 200, "OK", ct, body.len() as u64)?;
+    let mut w: &TcpStream = sock;
+    w.write_all(body)
+}
+
 fn serve_file(sock: &TcpStream, path: &Path, len: u64, content_type: &str) -> io::Result<()> {
     let file = File::open(path)?;
     write_headers(sock, 200, "OK", content_type, len)?;
@@ -363,6 +778,13 @@ fn serve_markdown(sock: &TcpStream, path: &Path, html_out: &mut String) -> io::R
     )?;
     let mut w: &TcpStream = sock;
     w.write_all(html_out.as_bytes())
+}
+
+fn serve_markdown_fragment(sock: &TcpStream, path: &Path, html_out: &mut String) -> io::Result<()> {
+    let markdown = fs::read(path)?;
+    let markdown = String::from_utf8_lossy(&markdown);
+    render_markdown_fragment(&markdown, html_out);
+    write_body(sock, "text/html; charset=utf-8", html_out.as_bytes())
 }
 
 // --- Directory listing --------------------------------------------------------
@@ -417,6 +839,7 @@ fn render_listing(dir: &Path, html: &mut String) -> io::Result<()> {
 struct Server {
     dir: PathBuf,
     quiet: bool,
+    docs_mode: bool,
     fp: PathBuf,
     html: String,
 }
@@ -460,6 +883,10 @@ impl Server {
 
         if method != "GET" {
             return write_error(sock, 405, "Method Not Allowed");
+        }
+
+        if self.docs_mode {
+            return self.dispatch_docs(sock, path_raw);
         }
 
         let decoded = percent_decode(path_raw);
@@ -511,6 +938,48 @@ impl Server {
 
         Ok(())
     }
+
+    fn dispatch_docs(&mut self, sock: &TcpStream, path_raw: &str) -> io::Result<()> {
+        let path = path_raw.split('?').next().unwrap_or("/");
+        match path {
+            "/__docs__/tree" => self.serve_docs_tree(sock),
+            "/__docs__/md" => self.serve_docs_markdown(sock, path_raw),
+            _ => write_body(sock, "text/html; charset=utf-8", DOCS_PAGE.as_bytes()),
+        }
+    }
+
+    fn serve_docs_tree(&mut self, sock: &TcpStream) -> io::Result<()> {
+        render_docs_tree_json(&self.dir, &mut self.html)?;
+        write_body(sock, "application/json; charset=utf-8", self.html.as_bytes())
+    }
+
+    fn serve_docs_markdown(&mut self, sock: &TcpStream, path_raw: &str) -> io::Result<()> {
+        let Some(rel) = query_param(path_raw, "path") else {
+            return write_error(sock, 400, "Bad Request: missing path parameter");
+        };
+
+        let rel = rel.trim_start_matches('/');
+        if rel.is_empty() {
+            return write_error(sock, 400, "Bad Request: empty path parameter");
+        }
+        let req_path = format!("/{rel}");
+        if !normalize_into(&self.dir, &req_path, &mut self.fp) {
+            return write_error(sock, 403, "Forbidden");
+        }
+        if !is_markdown(&self.fp) {
+            return write_error(sock, 400, "Bad Request: path must be a markdown file");
+        }
+        let meta = match fs::metadata(&self.fp) {
+            Ok(m) => m,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return write_error(sock, 404, "Not Found"),
+            Err(e) => return Err(e),
+        };
+        if !meta.is_file() {
+            return write_error(sock, 404, "Not Found");
+        }
+
+        serve_markdown_fragment(sock, &self.fp, &mut self.html)
+    }
 }
 
 // --- main --------------------------------------------------------------------
@@ -522,6 +991,7 @@ fn die(msg: &str) -> ! {
 
 fn main() {
     let mut quiet = false;
+    let mut docs_mode = false;
     let mut port = String::from("8000");
     let mut bind = String::from("127.0.0.1");
     let mut dir = String::from(".");
@@ -530,6 +1000,7 @@ fn main() {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-q" => quiet = true,
+            "--docs" => docs_mode = true,
             "-p" => port = args.next().unwrap_or_else(|| die("-p requires a value")),
             "-b" => bind = args.next().unwrap_or_else(|| die("-b requires a value")),
             "-V" | "--version" => {
@@ -538,10 +1009,11 @@ fn main() {
             }
             "-h" | "--help" => {
                 eprintln!(
-                    "usage: srv [-q] [-p port] [-b address] [directory]\n\
+                    "usage: srv [-q] [--docs] [-p port] [-b address] [directory]\n\
                      \n\
                      directory    path to serve (default: .)\n\
                      -q           quiet; disable logging\n\
+                     --docs       launch docs browser for markdown files\n\
                      -p port      port to listen on (default: 8000)\n\
                      -b address   bind address (default: 127.0.0.1)\n\
                      -V           print version and exit"
@@ -569,6 +1041,7 @@ fn main() {
     let mut srv = Server {
         dir,
         quiet,
+        docs_mode,
         fp: PathBuf::new(),
         html: String::new(),
     };
@@ -825,6 +1298,14 @@ mod tests {
 
     impl TestServer {
         fn new() -> Self {
+            Self::new_with_docs(false)
+        }
+
+        fn new_docs() -> Self {
+            Self::new_with_docs(true)
+        }
+
+        fn new_with_docs(docs_mode: bool) -> Self {
             let dir = tempfile::tempdir().unwrap();
 
             fs::write(dir.path().join("hello.txt"), "hello world").unwrap();
@@ -834,6 +1315,13 @@ mod tests {
                 "# Hello\n\nSome *markdown* text.\n\n- [x] one\n- [ ] two\n\n|a|b|\n|-|-|\n|1|2|\n",
             )
             .unwrap();
+            fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
+            fs::create_dir(dir.path().join("docs")).unwrap();
+            fs::write(dir.path().join("docs").join("guide.md"), "# Guide").unwrap();
+            fs::create_dir(dir.path().join("ignored")).unwrap();
+            fs::write(dir.path().join("ignored").join("skip.md"), "# Skip").unwrap();
+            fs::create_dir(dir.path().join(".hidden")).unwrap();
+            fs::write(dir.path().join(".hidden").join("secret.md"), "# Secret").unwrap();
             fs::create_dir(dir.path().join("sub")).unwrap();
             fs::write(dir.path().join("sub").join("index.html"), "<h1>hi</h1>").unwrap();
             fs::write(dir.path().join("file 2.txt"), "spaced").unwrap();
@@ -849,6 +1337,7 @@ mod tests {
             let mut srv = Server {
                 dir: fs::canonicalize(dir.path()).unwrap(),
                 quiet: true,
+                docs_mode,
                 fp: PathBuf::new(),
                 html: String::new(),
             };
@@ -956,6 +1445,38 @@ mod tests {
         assert!(body.contains("<table>"));
         assert!(body.contains("<td>1</td>"));
         assert!(body.contains("type=\"checkbox\""));
+    }
+
+    #[test]
+    fn integration_docs_mode_shell() {
+        let srv = TestServer::new_docs();
+        let (headers, body) = srv.get("/");
+        assert!(headers.contains("200 OK"));
+        assert!(headers.contains("Content-Type: text/html; charset=utf-8"));
+        assert!(body.contains("id=\"tree-root\""));
+        assert!(body.contains("/__docs__/tree"));
+    }
+
+    #[test]
+    fn integration_docs_mode_tree_filters_hidden_and_gitignored_dirs() {
+        let srv = TestServer::new_docs();
+        let (headers, body) = srv.get("/__docs__/tree");
+        assert!(headers.contains("200 OK"));
+        assert!(headers.contains("Content-Type: application/json; charset=utf-8"));
+        assert!(body.contains("README.md"));
+        assert!(body.contains("guide.md"));
+        assert!(!body.contains("skip.md"));
+        assert!(!body.contains("secret.md"));
+    }
+
+    #[test]
+    fn integration_docs_mode_markdown_fragment() {
+        let srv = TestServer::new_docs();
+        let (headers, body) = srv.get("/__docs__/md?path=README.md");
+        assert!(headers.contains("200 OK"));
+        assert!(headers.contains("Content-Type: text/html; charset=utf-8"));
+        assert!(body.contains("<h1>Hello</h1>"));
+        assert!(!body.contains("<html>"));
     }
 
     #[test]
