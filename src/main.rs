@@ -10,9 +10,35 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use pulldown_cmark::{Options, Parser, html};
+
 const LISTING_PRELUDE: &str = "<head><link rel=icon href=data:,><style>* { font-family: monospace; } \
      table { border: none; margin: 1rem; } td { padding-right: 2rem; }</style></head>\n\
      <table>";
+
+const MARKDOWN_PRELUDE: &str = "<!doctype html><html><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
+<title>Markdown</title><link rel=icon href=data:,><style>\
+:root { color-scheme: light; }\
+body { margin: 0; background: #f6f8fa; color: #24292f; }\
+.markdown-body { box-sizing: border-box; max-width: 980px; margin: 0 auto; padding: 40px; \
+font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif; \
+line-height: 1.6; }\
+@media (max-width: 767px) { .markdown-body { padding: 20px; } }\
+.markdown-body h1, .markdown-body h2 { border-bottom: 1px solid #d0d7de; padding-bottom: .3em; }\
+.markdown-body code, .markdown-body pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }\
+.markdown-body pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow: auto; }\
+.markdown-body code { background: rgba(175,184,193,.2); padding: .2em .4em; border-radius: 6px; }\
+.markdown-body pre code { background: transparent; padding: 0; }\
+.markdown-body table { border-collapse: collapse; }\
+.markdown-body th, .markdown-body td { border: 1px solid #d0d7de; padding: 6px 13px; }\
+.markdown-body tr:nth-child(2n) { background: #f6f8fa; }\
+.markdown-body blockquote { margin: 0; padding: 0 1em; color: #57606a; border-left: .25em solid #d0d7de; }\
+.markdown-body a { color: #0969da; text-decoration: none; }\
+.markdown-body a:hover { text-decoration: underline; }\
+</style></head><body><article class=\"markdown-body\">";
+
+const MARKDOWN_POSTLUDE: &str = "</article></body></html>";
 
 // --- humanize -----------------------------------------------------------------
 
@@ -187,6 +213,28 @@ fn mime(path: &Path) -> &'static str {
     }
 }
 
+fn is_markdown(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown"))
+}
+
+fn gfm_options() -> Options {
+    let mut opts = Options::empty();
+    opts.insert(Options::ENABLE_TABLES);
+    opts.insert(Options::ENABLE_STRIKETHROUGH);
+    opts.insert(Options::ENABLE_TASKLISTS);
+    opts
+}
+
+fn render_markdown(markdown: &str, html_out: &mut String) {
+    html_out.clear();
+    html_out.push_str(MARKDOWN_PRELUDE);
+    let parser = Parser::new_ext(markdown, gfm_options());
+    html::push_html(html_out, parser);
+    html_out.push_str(MARKDOWN_POSTLUDE);
+}
+
 // --- Zero-copy file transfer --------------------------------------------------
 
 #[cfg(target_os = "macos")]
@@ -300,6 +348,21 @@ fn serve_file(sock: &TcpStream, path: &Path, len: u64, content_type: &str) -> io
     let file = File::open(path)?;
     write_headers(sock, 200, "OK", content_type, len)?;
     send_file(&file, sock, len)
+}
+
+fn serve_markdown(sock: &TcpStream, path: &Path, html_out: &mut String) -> io::Result<()> {
+    let markdown = fs::read(path)?;
+    let markdown = String::from_utf8_lossy(&markdown);
+    render_markdown(&markdown, html_out);
+    write_headers(
+        sock,
+        200,
+        "OK",
+        "text/html; charset=utf-8",
+        html_out.len() as u64,
+    )?;
+    let mut w: &TcpStream = sock;
+    w.write_all(html_out.as_bytes())
 }
 
 // --- Directory listing --------------------------------------------------------
@@ -435,7 +498,11 @@ impl Server {
             let mut w: &TcpStream = sock;
             w.write_all(self.html.as_bytes())?;
         } else if ft.is_file() {
-            serve_file(sock, &self.fp, meta.len(), mime(&self.fp))?;
+            if is_markdown(&self.fp) {
+                serve_markdown(sock, &self.fp, &mut self.html)?;
+            } else {
+                serve_file(sock, &self.fp, meta.len(), mime(&self.fp))?;
+            }
         } else if ft.is_symlink() {
             write_error(sock, 403, "Forbidden: symlinks not served")?;
         } else {
@@ -739,6 +806,14 @@ mod tests {
         assert_eq!(mime(Path::new("noext")), "application/octet-stream");
     }
 
+    #[test]
+    fn markdown_extension_detection() {
+        assert!(is_markdown(Path::new("README.md")));
+        assert!(is_markdown(Path::new("README.Markdown")));
+        assert!(!is_markdown(Path::new("README.txt")));
+        assert!(!is_markdown(Path::new("README")));
+    }
+
     // --- Integration tests (real TCP) --------------------------------------------
 
     struct TestServer {
@@ -754,6 +829,11 @@ mod tests {
 
             fs::write(dir.path().join("hello.txt"), "hello world").unwrap();
             fs::write(dir.path().join("style.css"), "body{}").unwrap();
+            fs::write(
+                dir.path().join("README.md"),
+                "# Hello\n\nSome *markdown* text.\n\n- [x] one\n- [ ] two\n\n|a|b|\n|-|-|\n|1|2|\n",
+            )
+            .unwrap();
             fs::create_dir(dir.path().join("sub")).unwrap();
             fs::write(dir.path().join("sub").join("index.html"), "<h1>hi</h1>").unwrap();
             fs::write(dir.path().join("file 2.txt"), "spaced").unwrap();
@@ -862,6 +942,20 @@ mod tests {
         let srv = TestServer::new();
         let (headers, _) = srv.get("/style.css");
         assert!(headers.contains("Content-Type: text/css"));
+    }
+
+    #[test]
+    fn integration_markdown_renders_to_html() {
+        let srv = TestServer::new();
+        let (headers, body) = srv.get("/README.md");
+        assert!(headers.contains("200 OK"));
+        assert!(headers.contains("Content-Type: text/html; charset=utf-8"));
+        assert!(body.contains("<article class=\"markdown-body\">"));
+        assert!(body.contains("<h1>Hello</h1>"));
+        assert!(body.contains("<em>markdown</em>"));
+        assert!(body.contains("<table>"));
+        assert!(body.contains("<td>1</td>"));
+        assert!(body.contains("type=\"checkbox\""));
     }
 
     #[test]
