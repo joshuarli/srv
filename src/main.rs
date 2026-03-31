@@ -840,6 +840,8 @@ struct Server {
     dir: PathBuf,
     quiet: bool,
     docs_mode: bool,
+    // When Some, every request serves this filename regardless of URL path.
+    single_file: Option<String>,
     fp: PathBuf,
     html: String,
 }
@@ -884,6 +886,14 @@ impl Server {
         if method != "GET" {
             return write_error(sock, 405, "Method Not Allowed");
         }
+
+        let owned;
+        let path_raw = if let Some(ref name) = self.single_file {
+            owned = name.clone();
+            owned.as_str()
+        } else {
+            path_raw
+        };
 
         if self.docs_mode {
             return self.dispatch_docs(sock, path_raw);
@@ -950,7 +960,11 @@ impl Server {
 
     fn serve_docs_tree(&mut self, sock: &TcpStream) -> io::Result<()> {
         render_docs_tree_json(&self.dir, &mut self.html)?;
-        write_body(sock, "application/json; charset=utf-8", self.html.as_bytes())
+        write_body(
+            sock,
+            "application/json; charset=utf-8",
+            self.html.as_bytes(),
+        )
     }
 
     fn serve_docs_markdown(&mut self, sock: &TcpStream, path_raw: &str) -> io::Result<()> {
@@ -971,7 +985,9 @@ impl Server {
         }
         let meta = match fs::metadata(&self.fp) {
             Ok(m) => m,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return write_error(sock, 404, "Not Found"),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return write_error(sock, 404, "Not Found");
+            }
             Err(e) => return Err(e),
         };
         if !meta.is_file() {
@@ -1009,9 +1025,9 @@ fn main() {
             }
             "-h" | "--help" => {
                 eprintln!(
-                    "usage: srv [-q] [--docs] [-p port] [-b address] [directory]\n\
+                    "usage: srv [-q] [--docs] [-p port] [-b address] [path]\n\
                      \n\
-                     directory    path to serve (default: .)\n\
+                     path         file or directory to serve (default: .)\n\
                      -q           quiet; disable logging\n\
                      --docs       launch docs browser for markdown files\n\
                      -p port      port to listen on (default: 8000)\n\
@@ -1024,24 +1040,43 @@ fn main() {
         }
     }
 
-    let dir = match fs::canonicalize(&dir) {
+    let canonical = match fs::canonicalize(&dir) {
         Ok(p) => p,
         Err(e) => die(&format!("{dir}: {e}")),
     };
-    if !dir.is_dir() {
-        die(&format!("{} is not a directory", dir.display()));
-    }
+
+    let (dir, single_file) = if canonical.is_file() {
+        let name = canonical
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_else(|| die("file has no valid name"))
+            .to_owned();
+        let parent = canonical.parent().unwrap_or(&canonical).to_path_buf();
+        (parent, Some(format!("/{name}")))
+    } else if canonical.is_dir() {
+        (canonical, None)
+    } else {
+        die(&format!(
+            "{} is not a file or directory",
+            canonical.display()
+        ));
+    };
 
     let addr = format!("{bind}:{port}");
     let listener =
         TcpListener::bind(&addr).unwrap_or_else(|e| die(&format!("failed to bind {addr}: {e}")));
 
-    eprintln!("\tServing {} over HTTP on {addr}", dir.display());
+    if let Some(ref name) = single_file {
+        eprintln!("\tServing {}{} over HTTP on {addr}", dir.display(), name);
+    } else {
+        eprintln!("\tServing {} over HTTP on {addr}", dir.display());
+    }
 
     let mut srv = Server {
         dir,
         quiet,
         docs_mode,
+        single_file,
         fp: PathBuf::new(),
         html: String::new(),
     };
@@ -1338,6 +1373,7 @@ mod tests {
                 dir: fs::canonicalize(dir.path()).unwrap(),
                 quiet: true,
                 docs_mode,
+                single_file: None,
                 fp: PathBuf::new(),
                 html: String::new(),
             };
@@ -1411,6 +1447,91 @@ mod tests {
             if let Some(t) = self.thread.take() {
                 let _ = t.join();
             }
+        }
+    }
+
+    struct SingleFileServer {
+        addr: std::net::SocketAddr,
+        _dir: tempfile::TempDir,
+        shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl SingleFileServer {
+        fn new_txt() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("hello.txt");
+            fs::write(&path, "single file content").unwrap();
+            let canonical = fs::canonicalize(&path).unwrap();
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let shut = shutdown.clone();
+            let mut srv = Server {
+                dir: canonical.parent().unwrap().to_path_buf(),
+                quiet: true,
+                docs_mode: false,
+                single_file: Some(format!(
+                    "/{}",
+                    canonical.file_name().unwrap().to_str().unwrap()
+                )),
+                fp: PathBuf::new(),
+                html: String::new(),
+            };
+            let thread = std::thread::spawn(move || {
+                listener.set_nonblocking(true).unwrap();
+                while !shut.load(std::sync::atomic::Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((stream, _)) => {
+                            stream.set_nonblocking(false).unwrap();
+                            let _ = srv.handle(stream);
+                        }
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(std::time::Duration::from_millis(5));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+            SingleFileServer {
+                addr,
+                _dir: dir,
+                shutdown,
+                thread: Some(thread),
+            }
+        }
+
+        fn get(&self, path: &str) -> (String, String) {
+            let mut stream = TcpStream::connect(self.addr).unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                .unwrap();
+            write!(stream, "GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+            let mut resp = String::new();
+            let _ = stream.read_to_string(&mut resp);
+            let (headers, body) = resp.split_once("\r\n\r\n").unwrap_or((&resp, ""));
+            (headers.to_owned(), body.to_owned())
+        }
+    }
+
+    impl Drop for SingleFileServer {
+        fn drop(&mut self) {
+            self.shutdown
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            if let Some(t) = self.thread.take() {
+                let _ = t.join();
+            }
+        }
+    }
+
+    #[test]
+    fn integration_single_file_any_path() {
+        let srv = SingleFileServer::new_txt();
+        for path in ["/", "/whatever", "/some/nested/path"] {
+            let (headers, body) = srv.get(path);
+            assert!(headers.contains("200 OK"), "path {path}: {headers}");
+            assert!(headers.contains("Content-Type: text/plain"), "path {path}");
+            assert_eq!(body, "single file content", "path {path}");
         }
     }
 
