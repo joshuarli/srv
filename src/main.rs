@@ -887,6 +887,10 @@ impl Server {
             return write_error(sock, 405, "Method Not Allowed");
         }
 
+        if self.docs_mode {
+            return self.dispatch_docs(sock, path_raw);
+        }
+
         let owned;
         let path_raw = if let Some(ref name) = self.single_file {
             owned = name.clone();
@@ -894,10 +898,6 @@ impl Server {
         } else {
             path_raw
         };
-
-        if self.docs_mode {
-            return self.dispatch_docs(sock, path_raw);
-        }
 
         let decoded = percent_decode(path_raw);
         if !normalize_into(&self.dir, &decoded, &mut self.fp) {
