@@ -1,0 +1,73 @@
+name: release
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      actions: write
+      contents: read
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            target: aarch64-apple-darwin
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: laputa-systems/setup-rust@a7d09bfe692e431e6a98cd107ac2df77d47b5bba
+
+      - name: Build release
+        run: make release TARGET="${{ matrix.target }}"
+
+      - name: Package binary
+        run: cp "target/${{ matrix.target }}/release/srv" "srv-${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: srv-${{ matrix.target }}
+          path: srv-${{ matrix.target }}
+
+  release:
+    name: Create pre-release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: srv-*
+          path: dist
+          merge-multiple: true
+      - name: Zip artifacts
+        run: for f in dist/*; do zip -9 --junk-paths "$f.zip" "$f"; done
+      - name: Create pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: release-${{ github.sha }}
+        run: gh release create "$RELEASE_TAG" dist/*.zip --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" --title "$RELEASE_TAG"
