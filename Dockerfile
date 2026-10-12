@@ -3,6 +3,8 @@ FROM alpine:3.24.1
 ARG TARGETARCH
 ARG LLVM_VERSION=23.1.0-rc2
 ARG LLVM_RELEASE_SHA=6eb5fb9
+ARG MOLD_VERSION=3.0.0
+ARG MOLD_RELEASE_SHA=cfb4aab
 
 RUN apk add --no-cache \
     binutils \
@@ -31,6 +33,22 @@ RUN case "$TARGETARCH" in \
     && tar xf "$archive" -C /opt/llvm-musl --strip-components=1 \
     && test -f /opt/llvm-musl/lib/libclang.so \
     && rm /tmp/llvm-x86_64.tar.xz /tmp/llvm-aarch64.tar.xz
+
+# mold links the release binaries. It is a musl-linked prerelease build, so it runs
+# inside Alpine; clang selects it through --ld-path in musl-cargo.
+ADD https://github.com/joshuarli/mold/releases/download/mold-musl-${MOLD_VERSION}-${MOLD_RELEASE_SHA}/mold-${MOLD_VERSION}-x86_64-linux-musl.tar.gz /tmp/mold-x86_64.tar.gz
+ADD https://github.com/joshuarli/mold/releases/download/mold-musl-${MOLD_VERSION}-${MOLD_RELEASE_SHA}/mold-${MOLD_VERSION}-aarch64-linux-musl.tar.gz /tmp/mold-aarch64.tar.gz
+RUN case "$TARGETARCH" in \
+        amd64) archive=/tmp/mold-x86_64.tar.gz ;; \
+        arm64) archive=/tmp/mold-aarch64.tar.gz ;; \
+        *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && echo 'd6e47d61b74961a60868ad308acad4dfdc199e7ec97d61d65728e6ef1d6c2565  /tmp/mold-x86_64.tar.gz' | sha256sum -c - \
+    && echo '2d904b170d804008ada80157f8f18d9920d3ccc1e49e27d80123d01e386668f3  /tmp/mold-aarch64.tar.gz' | sha256sum -c - \
+    && mkdir -p /opt/mold \
+    && tar xf "$archive" -C /opt/mold --strip-components=1 \
+    && /opt/mold/bin/mold --version \
+    && rm /tmp/mold-x86_64.tar.gz /tmp/mold-aarch64.tar.gz
 
 RUN for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do \
         stub_dir="/usr/lib/srv-crt/$target"; \
@@ -107,7 +125,7 @@ case "$target" in
 esac
 
 mode=${MUSL_BUILD_MODE:-static}
-native="-L native=/usr/lib -Clink-arg=-B$crt"
+native="-L native=/usr/lib -Clink-arg=-B$crt -Clink-arg=--ld-path=/opt/mold/bin/mold"
 release="-Zlocation-detail=none -Zunstable-options -Cpanic=immediate-abort"
 case "$mode" in
     static|test)
