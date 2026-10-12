@@ -30,28 +30,60 @@ jobs:
         include:
           - runner: macos-26
             target: aarch64-apple-darwin
+            docker_platform: ''
           - runner: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
+            docker_platform: linux/amd64
           - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
+            target: aarch64-unknown-linux-musl
+            docker_platform: linux/arm64
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install Rust toolchain
-        run: rustup show active-toolchain
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        if: matrix.docker_platform != ''
+      - name: Build Linux release image
+        if: matrix.docker_platform != ''
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
-          key: ${{ matrix.runner }}-${{ matrix.target }}
-      - name: Build release
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.docker_platform }}
+          load: true
+          tags: srv-builder:${{ matrix.target }}
+          cache-from: type=gha,scope=srv-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=srv-${{ matrix.target }}
+      # rust-toolchain.toml selects the pinned nightly; rustup installs it, with rust-src, on the first cargo call.
+      - name: Build macOS release
+        if: matrix.docker_platform == ''
         run: make release TARGET="${{ matrix.target }}"
-      - name: Run tests
+      - name: Run macOS tests
+        if: matrix.docker_platform == ''
         run: make test-ci TARGET="${{ matrix.target }}"
-      - name: Save release
+      - name: Save macOS release
+        if: matrix.docker_platform == ''
         run: cp "target/${{ matrix.target }}/release/srv" "srv-${{ matrix.target }}"
+      - name: Build and verify Linux releases
+        if: matrix.docker_platform != ''
+        run: |
+          docker run --rm --init \
+            --platform "${{ matrix.docker_platform }}" \
+            -v "$GITHUB_WORKSPACE:/srv" \
+            -w /srv \
+            srv-builder:${{ matrix.target }} \
+            sh -ec '
+              make release-dynamic TARGET=${{ matrix.target }}
+              make verify-release-dynamic TARGET=${{ matrix.target }}
+              make test-ci TARGET=${{ matrix.target }}
+              cp target/${{ matrix.target }}/release/srv srv-${{ matrix.target }}
+              make release TARGET=${{ matrix.target }}
+              make verify-release TARGET=${{ matrix.target }}
+              cp target/${{ matrix.target }}/release/srv srv-${{ matrix.target }}-static
+            '
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: srv-${{ matrix.target }}
-          path: srv-${{ matrix.target }}
+          path: srv-*
 
   release:
     name: Create pre-release

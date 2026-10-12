@@ -2,6 +2,8 @@
 name = "srv"
 version = "0.5.1"
 edition = "2024"
+description = "Minimalist HTTP file browser"
+license = "MIT"
 
 [dependencies]
 httparse = "1"

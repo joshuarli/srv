@@ -2,7 +2,7 @@
 
 minimalist http file browser
 
-<img src="https://github.com/joshuarli/srv/blob/master/.github/screenshot.png?raw=true" width="200">
+<img src="https://github.com/joshuarli/srv/blob/main/.github/screenshot.png?raw=true" width="200">
 
 ## usage
 
