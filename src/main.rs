@@ -1028,11 +1028,12 @@ fn main() {
                     "usage: srv [-q] [--docs] [-p port] [-b address] [path]\n\
                      \n\
                      path         file or directory to serve (default: .)\n\
-                     -q           quiet; disable logging\n\
+                     -q           quiet; disable request logs\n\
                      --docs       launch docs browser for markdown files\n\
                      -p port      port to listen on (default: 8000)\n\
                      -b address   bind address (default: 127.0.0.1)\n\
-                     -V           print version and exit"
+                     -V, --version print version and exit\n\
+                     -h, --help   print this help and exit"
                 );
                 std::process::exit(0);
             }
